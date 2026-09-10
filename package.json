@@ -10,9 +10,9 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/Psychosynthesis/PulsarAssistan.git"
+    "url": "https://github.com/Psychosynthesis/PulsarAssistant.git"
   },
-  "homepage": "https://github.com/Psychosynthesis/PulsarAssistan#readme",
+  "homepage": "https://github.com/Psychosynthesis/PulsarAssistant#readme",
   "files": [
     "docs",
     "keymaps",
