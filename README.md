@@ -1,8 +1,8 @@
-# 🤖 Pulsar Assistant
+# Pulsar Assistant
 
 [![Version](https://img.shields.io/github/package-json/v/Psychosynthesis/PulsarAssistan)](https://packages.pulsar-edit.dev/packages/pulsar-assistant)
 [![Pulsar downloads](https://img.shields.io/pulsar/dt/PulsarAssistan)](https://packages.pulsar-edit.dev/packages/pulsar-assistant)
-[![CI](https://img.shields.io/github/actions/workflow/status/Psychosynthesis/PulsarAssistan/ci.yml?branch=trunk&label=CI)](https://github.com/Psychosynthesis/PulsarAssistan/actions/workflows/ci.yml)
+[![CI](https://img.shields.io/github/actions/workflow/status/Psychosynthesis/PulsarAssistan/ci.yml?branch=main&label=CI)](https://github.com/Psychosynthesis/PulsarAssistan/actions/workflows/ci.yml)
 
 A simple, minimalist plugin that provides coding assistant functionality using any model into [Pulsar](https://pulsar-edit.dev),
 without the need to run a full-fledged ACP agent locally.
