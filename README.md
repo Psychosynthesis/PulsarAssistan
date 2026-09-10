@@ -20,7 +20,7 @@ Highlights:
 - Attach the current file or selection to prompts.
 - Review permission prompts, tool output, diffs, plans, and session history inline.
 - Configure and switch between APIs from the panel header.
-
+- Track OpenAI-compatible API traffic per session in the panel header: request count plus bytes sent and received.
 
 The builtin agent is the primary path. Spawned ACP CLIs remain supported as a
 fallback. Currently tested with GitHub Copilot CLI and Mistral Vibe.
@@ -256,6 +256,7 @@ Beyond ACP, this package also adds:
 | Feature | Status |
 | --- | --- |
 | host context hint | yes, sent once per session by default |
+| OpenAI-compatible API traffic summary | yes, per panel session |
 
 ## Security
 

@@ -35,6 +35,11 @@ export type ChatEvent =
   | { type: "tool_calls"; calls: ChatToolCall[] }
   | { type: "done"; finishReason: string };
 
+export type OpenAiResponseUsage = {
+  requestBytes: number;
+  responseBytes: number;
+};
+
 export type OpenAiClientOptions = {
   baseUrl: string;
   apiKey: string;
@@ -93,6 +98,10 @@ function boundFetch(
   return globalThis.fetch(...args);
 }
 
+function utf8ByteLength(text: string): number {
+  return new TextEncoder().encode(text).length;
+}
+
 function trimSlash(url: string): string {
   return url.replace(/\/+$/, "");
 }
@@ -135,20 +144,26 @@ export class OpenAiChatClient {
   async *complete(
     request: ChatRequest,
     signal: AbortSignal,
+    options: { onResponse?: (usage: OpenAiResponseUsage) => void } = {},
   ): AsyncIterable<ChatEvent> {
     if (this.stream) {
-      yield* this.completeStream(request, signal);
+      yield* this.completeStream(request, signal, options);
       return;
     }
-    yield* this.completeOnce(request, signal);
+    yield* this.completeOnce(request, signal, options);
   }
 
   private async *completeOnce(
     request: ChatRequest,
     signal: AbortSignal,
+    options: { onResponse?: (usage: OpenAiResponseUsage) => void },
   ): AsyncIterable<ChatEvent> {
-    const response = await this.post(request, false, signal);
+    const { response, requestBytes } = await this.post(request, false, signal);
     const text = await response.text();
+    options.onResponse?.({
+      requestBytes,
+      responseBytes: utf8ByteLength(text),
+    });
     let parsed: ChatCompletionResponse;
     try {
       parsed = JSON.parse(text) as ChatCompletionResponse;
@@ -178,10 +193,15 @@ export class OpenAiChatClient {
   private async *completeStream(
     request: ChatRequest,
     signal: AbortSignal,
+    options: { onResponse?: (usage: OpenAiResponseUsage) => void },
   ): AsyncIterable<ChatEvent> {
-    const response = await this.post(request, true, signal);
+    const { response, requestBytes } = await this.post(request, true, signal);
     if (!response.ok) {
       const body = await response.text();
+      options.onResponse?.({
+        requestBytes,
+        responseBytes: utf8ByteLength(body),
+      });
       throw new OpenAiHttpError(
         `API error ${response.status}`,
         response.status,
@@ -196,7 +216,10 @@ export class OpenAiChatClient {
       { id: string; name: string; arguments: string }
     >();
     let finishReason = "stop";
-    for await (const payload of readSseData(response.body, signal)) {
+    let receivedBytes = 0;
+    for await (const payload of readSseData(response.body, signal, (bytes) => {
+      receivedBytes += bytes;
+    })) {
       if (payload === "[DONE]") break;
       let parsed: ChatCompletionResponse;
       try {
@@ -230,24 +253,30 @@ export class OpenAiChatClient {
       }));
       yield { type: "tool_calls", calls };
     }
+    options.onResponse?.({
+      requestBytes,
+      responseBytes: receivedBytes,
+    });
     yield { type: "done", finishReason };
   }
 
-  private post(
+  private async post(
     request: ChatRequest,
     stream: boolean,
     signal: AbortSignal,
-  ): Promise<Response> {
+  ): Promise<{ response: Response; requestBytes: number }> {
     const url = completionsUrl(this.options.baseUrl);
-    return this.fetchImpl(url, {
+    const body = JSON.stringify({ ...request, stream });
+    const response = await this.fetchImpl(url, {
       method: "POST",
       headers: {
         "content-type": "application/json",
         authorization: `Bearer ${this.options.apiKey}`,
       },
-      body: JSON.stringify({ ...request, stream }),
+      body,
       signal,
     });
+    return { response, requestBytes: utf8ByteLength(body) };
   }
 }
 
@@ -311,6 +340,7 @@ export async function fetchOpenAiModels(
 async function* readSseData(
   body: ReadableStream<Uint8Array>,
   signal: AbortSignal,
+  onBytes?: (bytes: number) => void,
 ): AsyncIterable<string> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
@@ -319,6 +349,7 @@ async function* readSseData(
     while (!signal.aborted) {
       const { done, value } = await reader.read();
       if (done) break;
+      onBytes?.(value.byteLength);
       buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
       let separator: number;
       while ((separator = buffer.indexOf("\n\n")) !== -1) {

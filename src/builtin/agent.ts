@@ -23,6 +23,8 @@ type SessionState = {
   cwd: string;
   messages: ChatMessage[];
   pending: AbortController | null;
+  seenToolMessages: Set<ChatMessage>;
+  grepResultSummaries: Map<ChatMessage, string>;
 };
 
 function systemPrompt(cwd: string): string {
@@ -45,6 +47,21 @@ function systemPrompt(cwd: string): string {
 
 function newId(): string {
   return randomBytes(16).toString("hex");
+}
+
+function emitDocumentEvent<T>(name: string, detail: T): void {
+  if (typeof document === "undefined") return;
+  document.dispatchEvent(new CustomEvent<T>(name, { detail }));
+}
+
+function grepResultSummary(content: string): string {
+  if (!content || content.trim() === "" || content === "No matches.") {
+    return "[grep result omitted from history; 0 matches returned]";
+  }
+  const matches = content
+    .split(/\r?\n/)
+    .filter((line) => line.trim().length > 0).length;
+  return `[grep result omitted from history; ${matches} matches returned]`;
 }
 
 function promptToText(blocks: acp.ContentBlock[]): string {
@@ -100,6 +117,12 @@ export class BuiltinAgent {
       cwd: params.cwd,
       messages: [{ role: "system", content: systemPrompt(params.cwd) }],
       pending: null,
+      seenToolMessages: new Set(),
+      grepResultSummaries: new Map(),
+    });
+    emitDocumentEvent("pulsar-assistant:builtin-session-new", {
+      projectRoot: params.cwd,
+      sessionId,
     });
     return { sessionId };
   }
@@ -150,6 +173,16 @@ export class BuiltinAgent {
           tool_choice: "auto",
         },
         signal,
+        {
+          onResponse: (usage) => {
+            emitDocumentEvent("pulsar-assistant:api-traffic", {
+              projectRoot: session.cwd,
+              sessionId,
+              requestBytes: usage.requestBytes,
+              responseBytes: usage.responseBytes,
+            });
+          },
+        },
       )) {
         if (event.type === "text" && event.text) {
           assistant.content = `${assistant.content ?? ""}${event.text}`;
@@ -164,6 +197,10 @@ export class BuiltinAgent {
           toolCalls = event.calls;
         }
       }
+      // The request completed successfully, so every tool message included in
+      // it has now been seen by the model. Compact the ones we don't want to
+      // send again in full on subsequent API calls.
+      this.markSeenToolMessages(session);
       if (!toolCalls || toolCalls.length === 0) {
         session.messages.push({
           role: "assistant",
@@ -192,6 +229,17 @@ export class BuiltinAgent {
       },
     });
     return { stopReason: "max_turn_requests" };
+  }
+
+  private markSeenToolMessages(session: SessionState): void {
+    for (const message of session.messages) {
+      if (message.role !== "tool" || session.seenToolMessages.has(message)) {
+        continue;
+      }
+      session.seenToolMessages.add(message);
+      const summary = session.grepResultSummaries.get(message);
+      if (summary !== undefined) message.content = summary;
+    }
   }
 
   private async runTool(
@@ -290,11 +338,18 @@ export class BuiltinAgent {
           rawOutput: { output: result.output },
         },
       });
-      session.messages.push({
+      const toolMessage: ChatMessage = {
         role: "tool",
         tool_call_id: toolCallId,
         content: result.output,
-      });
+      };
+      if (call.function.name === "grep") {
+        session.grepResultSummaries.set(
+          toolMessage,
+          grepResultSummary(result.output),
+        );
+      }
+      session.messages.push(toolMessage);
     } catch (error) {
       if (error instanceof ToolRejected) {
         session.messages.push({

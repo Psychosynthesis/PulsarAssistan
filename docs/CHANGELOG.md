@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-09-10
+
+- The header **More** row shows a compact per-session API traffic summary for
+  OpenAI-compatible agents: request count plus sent and received bytes.
+- The **Tool turns** input no longer shows native number spinners and is wider.
+  It now sits in the right side of the actions row together with the
+  **Permissions** toggle.
+- Grep tool results are compacted after the model has seen them once, so
+  follow-up OpenAI-compatible API calls no longer resend the full result.
+
 ## [0.3.0] - 2026-09-10
 
 - API agents (`type: openai`) can list available models from the provider's

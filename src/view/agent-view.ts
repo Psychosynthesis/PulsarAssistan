@@ -737,11 +737,11 @@ export class PulsarAssistantView {
     actions.appendChild(this.buildContextControl());
     actions.appendChild(this.buildConfigSelectors());
     actions.appendChild(this.buildTurnLimitControl());
+    actions.appendChild(this.autoApproveButton);
 
     const actionButtons = document.createElement("div");
     actionButtons.classList.add("pulsar-assistant-action-buttons");
     actionButtons.appendChild(this.followButton);
-    actionButtons.appendChild(this.autoApproveButton);
     actionButtons.appendChild(this.stopButton);
     actionButtons.appendChild(this.sendButton);
 

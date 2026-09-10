@@ -3,6 +3,7 @@ import type { StatusBar } from "atom/status-bar";
 import { PulsarAssistantView } from "./view/agent-view";
 import { migrateAgentsConfigStore } from "./view/config-store";
 import { StatusIndicator } from "./view/status-indicator";
+import { attachTrafficSummary } from "./view/traffic-summary";
 import {
   isOpenProjectRoot,
   parseAgentUri,
@@ -15,6 +16,7 @@ import {
 let subscriptions: CompositeDisposable;
 let indicator: StatusIndicator | null = null;
 const views = new Set<PulsarAssistantView>();
+const trafficSummaries = new Map<string, Disposable>();
 
 function getIndicator(): StatusIndicator {
   return (indicator ??= new StatusIndicator(() => {
@@ -41,8 +43,12 @@ function createView(
     selectedAgentId,
     selectedModelId,
   });
+  const trafficSummary = attachTrafficSummary(view);
+  trafficSummaries.set(projectRoot, trafficSummary);
   const destroy = view.destroy.bind(view);
   view.destroy = () => {
+    trafficSummaries.get(projectRoot)?.dispose();
+    trafficSummaries.delete(projectRoot);
     views.delete(view);
     destroy();
   };
@@ -250,6 +256,8 @@ export function deactivate(): void {
   subscriptions.dispose();
   indicator?.destroy();
   indicator = null;
+  for (const disposer of trafficSummaries.values()) disposer.dispose();
+  trafficSummaries.clear();
   for (const view of Array.from(views)) view.destroy();
   views.clear();
 }
