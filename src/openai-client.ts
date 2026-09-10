@@ -67,6 +67,14 @@ type ChatCompletionResponse = {
   error?: { message?: string };
 };
 
+function boundFetch(
+  ...args: Parameters<typeof fetch>
+): Promise<Response> {
+  // Window.fetch must keep `this === window`. Storing `fetch` and calling it
+  // later is an Illegal invocation in Pulsar's renderer.
+  return globalThis.fetch(...args);
+}
+
 function trimSlash(url: string): string {
   return url.replace(/\/+$/, "");
 }
@@ -91,7 +99,7 @@ export class OpenAiChatClient {
   readonly stream: boolean;
 
   constructor(private readonly options: OpenAiClientOptions) {
-    this.fetchImpl = options.fetch ?? fetch;
+    this.fetchImpl = options.fetch ?? boundFetch;
     this.stream = options.stream === true;
   }
 
