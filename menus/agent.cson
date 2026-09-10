@@ -28,6 +28,13 @@
 ]
 
 'context-menu':
+  '.tree-view .file, .tree-view .directory':
+    [
+      {
+        'label': 'Open for this Project'
+        'command': 'pulsar-assistant:open-for-project'
+      }
+    ]
   '.pulsar-assistant':
     [
       {

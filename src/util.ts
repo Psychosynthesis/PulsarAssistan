@@ -4,6 +4,7 @@ import spawn from "cross-spawn";
 import * as acp from "@agentclientprotocol/sdk";
 
 export const TERMINAL_KILL_GRACE_MS = 2_000;
+
 export const DEFAULT_PROCESS_OUTPUT_BYTES = 64 * 1024;
 export const MAX_PROCESS_OUTPUT_BYTES = 1024 * 1024;
 

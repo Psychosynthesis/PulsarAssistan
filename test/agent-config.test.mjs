@@ -8,6 +8,7 @@ import {
   COPILOT_AGENT_ID,
   COPILOT_AGENT_NAME,
   DEFAULT_AGENT_COMMAND,
+  groupAgents,
   isLaunchedAgentStale,
   launchTargetsEqual,
   migrateAgentsConfig,
@@ -43,6 +44,7 @@ test("normalizeAgentsConfig: drops invalid agent entries", () => {
   assert.deepEqual(Object.keys(config.agents), ["good"]);
   assert.deepEqual(config.agents.good, {
     name: "Good",
+    type: "acp",
     command: "good --acp",
   });
 });
@@ -79,7 +81,7 @@ test("migrateAgentsConfig: seeds the copilot default when unmigrated and empty",
   assert.equal(config.activeAgentId, COPILOT_AGENT_ID);
   assert.deepEqual(config.agents[COPILOT_AGENT_ID], {
     name: COPILOT_AGENT_NAME,
-    type: "command",
+    type: "acp",
     command: DEFAULT_AGENT_COMMAND,
   });
 });
@@ -149,10 +151,21 @@ test("migrateAgentsConfig: does not auto-correct an invalid activeAgentId once m
   const { config, changed } = migrateAgentsConfig({
     version: 1,
     activeAgentId: "gone",
-    agents: { a: { name: "A", command: "a" } },
+    agents: { a: { name: "A", type: "acp", command: "a" } },
   });
   assert.equal(changed, false);
   assert.equal(config.activeAgentId, "gone");
+});
+
+test("migrateAgentsConfig: stamps type on migrated agents that omit it", () => {
+  const { config, changed } = migrateAgentsConfig({
+    version: 1,
+    activeAgentId: "a",
+    agents: { a: { name: "A", command: "a" } },
+  });
+  assert.equal(changed, true);
+  assert.equal(config.agents.a.type, "acp");
+  assert.equal(config.activeAgentId, "a");
 });
 
 test("migrateAgentsConfig: future version is non-destructive (no write-back)", () => {
@@ -301,10 +314,41 @@ test("toLaunchTarget: command fallback keeps the spawn command", () => {
     name: "GitHub Copilot",
     command: "copilot --acp --stdio",
   });
-  assert.equal(target.kind, "command");
-  if (target.kind === "command") {
+  assert.equal(target.kind, "acp");
+  if (target.kind === "acp") {
     assert.equal(target.command, DEFAULT_AGENT_COMMAND);
   }
+});
+
+test("normalizeAgentsConfig: maps type command to acp", () => {
+  const config = normalizeAgentsConfig({
+    agents: { old: { name: "Old", type: "command", command: "old --acp" } },
+  });
+  assert.equal(config.agents.old.type, "acp");
+});
+
+test("groupAgents: API group then ACP, preserving key order", () => {
+  const config = normalizeAgentsConfig({
+    agents: {
+      copilot: { name: "GitHub Copilot", command: "copilot --acp --stdio" },
+      ours: {
+        name: "Ours",
+        type: "openai",
+        baseUrl: "https://api.example/v1",
+        model: "dev",
+        apiKey: "k",
+      },
+      vibe: { name: "Vibe", type: "acp", command: "vibe --acp" },
+    },
+  });
+  const groups = groupAgents(config.agents);
+  assert.deepEqual(
+    groups.map((group) => [group.type, group.entries.map(([id]) => id)]),
+    [
+      ["openai", ["ours"]],
+      ["acp", ["copilot", "vibe"]],
+    ],
+  );
 });
 
 test("resolveApiKey: direct apiKey wins over env", () => {

@@ -13,6 +13,7 @@ import {
 } from "../util";
 import { LaunchTarget, type OpenaiLaunchTarget } from "../agent-config";
 import { BuiltinAgent } from "../builtin/agent";
+import type { BuiltinHost } from "../builtin/tools";
 import { CFG_PROJECTS, resolveProjectPolicy } from "../project-policy";
 
 declare const __PULSAR_ACP_AGENT_VERSION__: string;
@@ -125,8 +126,8 @@ function isInsideRoots(target: string, roots: string[]): boolean {
 export class AgentSession {
   private listeners = new Set<Listener>();
   private connection: acp.ClientSideConnection | null = null;
+  private builtin: BuiltinAgent | null = null;
   private child: ChildProcess | null = null;
-  private closeBuiltin: (() => void) | null = null;
   sessionId: string | null = null;
   running = false;
   switching = false;
@@ -147,6 +148,7 @@ export class AgentSession {
   private hostContextSentSessionIds = new Set<string>();
   private sessionConfigOptions = new Map<string, acp.SessionConfigOption[]>();
   private sessionCommands = new Map<string, acp.AvailableCommand[]>();
+  private lastStderr = "";
 
   constructor(private readonly projectRoot: string) {
     if (!path.isAbsolute(projectRoot)) {
@@ -221,11 +223,48 @@ export class AgentSession {
     const cwd = this.cwd();
     this.emit({ type: "status", text: `Starting ${target.name}\u2026` });
     this.startedTarget = target;
+    // API agents are in-process HTTP. Only spawned CLIs speak ACP over stdio.
+    if (target.kind === "openai") {
+      await this.startBuiltin(target, cwd);
+      return;
+    }
+    await this.startAcpCli(target, cwd);
+  }
 
-    const { connection, processError } =
-      target.kind === "openai"
-        ? this.connectBuiltin(target)
-        : this.spawnCommand(target, cwd);
+  private async startBuiltin(
+    target: OpenaiLaunchTarget,
+    cwd: string,
+  ): Promise<void> {
+    const builtin = new BuiltinAgent(this.builtinHost(), target, () =>
+      resolveProjectPolicy(this.projectRoot, atom.config.get(CFG_PROJECTS)),
+    );
+    this.builtin = builtin;
+    const init = builtin.initialize({
+      protocolVersion: PROTOCOL_VERSION,
+      clientInfo: CLIENT_INFO,
+      clientCapabilities: {
+        fs: { readTextFile: true, writeTextFile: true },
+        terminal: false,
+      },
+    });
+    this.authMethods = [];
+    this.agentCapabilities = init.agentCapabilities ?? null;
+    this.promptCapabilities = init.agentCapabilities?.promptCapabilities ?? null;
+    this.emit({
+      type: "initialized",
+      info: init.agentInfo ?? null,
+      capabilities: this.agentCapabilities,
+      supportsImages: false,
+    });
+    const session = await builtin.newSession(this.newSessionRequest(cwd));
+    this.acceptSession(session, cwd, "start");
+  }
+
+  private async startAcpCli(
+    target: Extract<LaunchTarget, { kind: "acp" }>,
+    cwd: string,
+  ): Promise<void> {
+    const { connection, processError } = this.spawnCommand(target, cwd);
     this.connection = connection;
 
     const init = await this.withStartupTimeout(
@@ -284,12 +323,20 @@ export class AgentSession {
         throw retryError;
       }
     }
+    this.acceptSession(session, cwd, "start");
+  }
+
+  private acceptSession(
+    session: acp.NewSessionResponse,
+    cwd: string,
+    source: "start" | "new",
+  ): void {
     this.sessionId = session.sessionId;
     this.sessionCwd = cwd;
     this.loadedSessionIds.add(session.sessionId);
     if (session.configOptions)
       this.sessionConfigOptions.set(session.sessionId, session.configOptions);
-    this.emit({ type: "ready", source: "start" });
+    this.emit({ type: "ready", source });
     this.refreshSessionList();
   }
 
@@ -299,6 +346,7 @@ export class AgentSession {
   // at each call site.
   private resetConnectionState(): void {
     this.connection = null;
+    this.builtin = null;
     this.sessionCwd = null;
     this.authMethods = [];
     this.agentCapabilities = null;
@@ -309,10 +357,11 @@ export class AgentSession {
     this.hostContextSentSessionIds.clear();
     this.sessionConfigOptions.clear();
     this.sessionCommands.clear();
+    this.lastStderr = "";
   }
 
   private spawnCommand(
-    target: Extract<LaunchTarget, { kind: "command" }>,
+    target: Extract<LaunchTarget, { kind: "acp" }>,
     cwd: string,
   ): { connection: acp.ClientSideConnection; processError: Promise<never> } {
     const [command, ...args] = parseCommandLine(target.command);
@@ -351,6 +400,7 @@ export class AgentSession {
     stderr.setEncoding("utf8");
     stderr.on("data", (text: string) => {
       if (this.child !== child) return;
+      this.lastStderr = `${this.lastStderr}${text}`.slice(-8_000);
       this.emit({ type: "stderr", text });
     });
 
@@ -381,66 +431,16 @@ export class AgentSession {
     return { connection, processError };
   }
 
-  private connectBuiltin(target: OpenaiLaunchTarget): {
-    connection: acp.ClientSideConnection;
-    processError: Promise<never>;
-  } {
-    const leftToRight = new TransformStream<Uint8Array, Uint8Array>();
-    const rightToLeft = new TransformStream<Uint8Array, Uint8Array>();
-    const clientStream = acp.ndJsonStream(
-      leftToRight.writable,
-      rightToLeft.readable,
-    );
-    const agentStream = acp.ndJsonStream(
-      rightToLeft.writable,
-      leftToRight.readable,
-    );
-    const connection = new acp.ClientSideConnection(
-      () => this.buildClient(),
-      clientStream,
-    );
-    const agentSide = new acp.AgentSideConnection(
-      (conn) =>
-        new BuiltinAgent(conn, target, () =>
-          resolveProjectPolicy(
-            this.projectRoot,
-            atom.config.get(CFG_PROJECTS),
-          ),
-        ),
-      agentStream,
-    );
-    const closeBuiltin = () => {
-      try {
-        void leftToRight.writable.close();
-      } catch {}
-      try {
-        void rightToLeft.writable.close();
-      } catch {}
+  private builtinHost(): BuiltinHost {
+    return {
+      sessionUpdate: (params) => this.handleSessionNotification(params),
+      requestPermission: (params) => this.requestPermission(params),
+      readTextFile: (params) => this.readTextFile(params),
+      writeTextFile: async (params) => {
+        await this.writeTextFile(params);
+        return {};
+      },
     };
-    this.closeBuiltin = closeBuiltin;
-    const processError = new Promise<never>((_, reject) => {
-      void agentSide.closed.then(() => {
-        reject(new Error("Builtin agent connection closed."));
-      });
-    });
-    processError.catch(() => {});
-    void agentSide.closed.then(() => {
-      if (this.closeBuiltin !== closeBuiltin) return;
-      this.closeBuiltin = null;
-      const hadSession = this.sessionId != null;
-      this.sessionId = null;
-      this.starting = null;
-      if (!hadSession) {
-        this.launchTarget = null;
-        this.startedTarget = null;
-      }
-      this.running = false;
-      this.switching = false;
-      this.pendingSessionId = null;
-      this.resetConnectionState();
-      if (hadSession) this.emit({ type: "exit", code: null, signal: null });
-    });
-    return { connection, processError };
   }
 
   private teardownTransport(): void {
@@ -450,10 +450,13 @@ export class AgentSession {
       } catch {}
       this.child = null;
     }
-    if (this.closeBuiltin) {
-      this.closeBuiltin();
-      this.closeBuiltin = null;
+    const builtin = this.builtin;
+    if (builtin && this.sessionId) {
+      try {
+        void builtin.cancel({ sessionId: this.sessionId });
+      } catch {}
     }
+    this.builtin = null;
   }
 
   private cleanupFailedStartup(): void {
@@ -491,6 +494,9 @@ export class AgentSession {
   }
 
   async setConfigOption(configId: string, value: string): Promise<void> {
+    if (this.builtin) {
+      throw new Error("API agents do not have ACP session config options.");
+    }
     if (!this.connection || !this.sessionId) {
       throw new Error("Agent session is not ready.");
     }
@@ -593,7 +599,7 @@ export class AgentSession {
       }
       await this.start(this.launchTarget);
       this.emit({ type: "turn-start" });
-      if (!this.connection || !this.sessionId) {
+      if (!this.sessionId || (!this.builtin && !this.connection)) {
         throw new Error("Agent session is not ready.");
       }
       // Block order mirrors Zed (text, then embedded context). Images are not
@@ -610,11 +616,11 @@ export class AgentSession {
           prompt.push(buildContextBlock(attachment));
         }
       }
-      this.appendHostContext(prompt);
-      const result = await this.connection.prompt({
-        sessionId: this.sessionId,
-        prompt,
-      });
+      if (!this.builtin) this.appendHostContext(prompt);
+      const request = { sessionId: this.sessionId, prompt };
+      const result = this.builtin
+        ? await this.builtin.prompt(request)
+        : await this.connection!.prompt(request);
       // Clear `running` before emitting so listeners that re-render controls
       // (e.g. the "+ New" button) see the idle state. The finally is a safety net.
       this.cancelPendingPermissions();
@@ -632,7 +638,9 @@ export class AgentSession {
   }
 
   cancel(): void {
-    if (this.connection && this.sessionId) {
+    if (this.builtin && this.sessionId) {
+      void this.builtin.cancel({ sessionId: this.sessionId });
+    } else if (this.connection && this.sessionId) {
       this.connection.cancel({ sessionId: this.sessionId }).catch((error) => {
         const message = error instanceof Error ? error.message : String(error);
         this.emit({
@@ -640,7 +648,7 @@ export class AgentSession {
           message: `Failed to cancel agent turn: ${message}`,
         });
       });
-    } else if (this.child || this.closeBuiltin) {
+    } else if (this.child) {
       this.teardownTransport();
       this.starting = null;
     }
@@ -737,23 +745,8 @@ export class AgentSession {
 
   private buildClient(): acp.Client {
     return {
-      sessionUpdate: async (params: acp.SessionNotification) => {
-        const expectedId = this.pendingSessionId ?? this.sessionId;
-        if (params.sessionId !== expectedId) return;
-        const update = this.filterHostContextUpdate(params.update);
-        if (!update) return;
-        if (update.sessionUpdate === "config_option_update") {
-          this.sessionConfigOptions.set(params.sessionId, update.configOptions);
-        }
-        if (update.sessionUpdate === "available_commands_update") {
-          this.sessionCommands.set(params.sessionId, update.availableCommands);
-        }
-        this.emit({
-          type: "update",
-          sessionId: params.sessionId,
-          update,
-        });
-      },
+      sessionUpdate: (params: acp.SessionNotification) =>
+        this.handleSessionNotification(params),
       requestPermission: async (params: acp.RequestPermissionRequest) =>
         this.requestPermission(params),
       readTextFile: async (params: acp.ReadTextFileRequest) =>
@@ -768,6 +761,26 @@ export class AgentSession {
       waitForTerminalExit: () => this.rejectTerminal(),
       killTerminal: () => this.rejectTerminal(),
     };
+  }
+
+  private async handleSessionNotification(
+    params: acp.SessionNotification,
+  ): Promise<void> {
+    const expectedId = this.pendingSessionId ?? this.sessionId;
+    if (params.sessionId !== expectedId) return;
+    const update = this.filterHostContextUpdate(params.update);
+    if (!update) return;
+    if (update.sessionUpdate === "config_option_update") {
+      this.sessionConfigOptions.set(params.sessionId, update.configOptions);
+    }
+    if (update.sessionUpdate === "available_commands_update") {
+      this.sessionCommands.set(params.sessionId, update.availableCommands);
+    }
+    this.emit({
+      type: "update",
+      sessionId: params.sessionId,
+      update,
+    });
   }
 
   private rejectTerminal(): never {
@@ -843,14 +856,22 @@ export class AgentSession {
     );
   }
 
+  private startupTimeoutError(step: string): Error {
+    const target = this.launchTarget;
+    const who = target ? `${target.name} (${target.kind})` : "agent";
+    const stderr = this.lastStderr.trim();
+    const hint = stderr ? `\n\nAgent stderr:\n${stderr}` : "";
+    return new Error(
+      `Timed out during ${step} for ${who} after ${STARTUP_TIMEOUT_MS / 1000}s.${hint}\nPress Restart and try again.`,
+    );
+  }
+
   private withStartupTimeout<T>(promise: Promise<T>, step: string): Promise<T> {
     const generation = this.starting;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         if (this.starting === generation) this.teardownTransport();
-        reject(
-          new Error(`Timed out during ${step}. Press Restart and try again.`),
-        );
+        reject(this.startupTimeoutError(step));
       }, STARTUP_TIMEOUT_MS);
 
       promise.then(
@@ -1025,22 +1046,17 @@ export class AgentSession {
   }
 
   async newSession(): Promise<void> {
-    if (!this.connection) throw new Error("Agent is not connected.");
     if (this.running || this.switching) throw new Error("The agent is already responding.");
+    if (!this.builtin && !this.connection) {
+      throw new Error("Agent is not connected.");
+    }
     this.switching = true;
     try {
       const cwd = this.cwd();
-      const session = await this.connection.newSession(
-        this.newSessionRequest(cwd),
-      );
-      this.sessionId = session.sessionId;
-      this.sessionCwd = cwd;
-      this.loadedSessionIds.add(session.sessionId);
-      if (session.configOptions)
-        this.sessionConfigOptions.set(session.sessionId, session.configOptions);
-      this.switching = false;
-      this.emit({ type: "ready", source: "new" });
-      this.refreshSessionList();
+      const session = this.builtin
+        ? await this.builtin.newSession(this.newSessionRequest(cwd))
+        : await this.connection!.newSession(this.newSessionRequest(cwd));
+      this.acceptSession(session, cwd, "new");
     } finally {
       this.switching = false;
     }

@@ -152,6 +152,21 @@ export function toolsForPolicy(policy: ProjectPolicy): ChatTool[] {
 
 export type ToolKind = acp.ToolKind;
 
+export type BuiltinHost = {
+  sessionUpdate(
+    params: acp.SessionNotification,
+  ): Promise<void>;
+  requestPermission(
+    params: acp.RequestPermissionRequest,
+  ): Promise<acp.RequestPermissionResponse>;
+  readTextFile(
+    params: acp.ReadTextFileRequest,
+  ): Promise<acp.ReadTextFileResponse>;
+  writeTextFile(
+    params: acp.WriteTextFileRequest,
+  ): Promise<acp.WriteTextFileResponse | void>;
+};
+
 export type ToolMeta = {
   title: string;
   kind: ToolKind;
@@ -283,7 +298,7 @@ export function describeToolCall(
 }
 
 export async function requestToolPermission(
-  conn: acp.AgentSideConnection,
+  conn: BuiltinHost,
   sessionId: string,
   toolCallId: string,
   meta: ToolMeta,
@@ -308,7 +323,7 @@ export async function requestToolPermission(
 }
 
 export async function executeTool(
-  conn: acp.AgentSideConnection,
+  conn: BuiltinHost,
   sessionId: string,
   name: string,
   rawArguments: string,
@@ -339,7 +354,7 @@ export async function executeTool(
 }
 
 async function readFileTool(
-  conn: acp.AgentSideConnection,
+  conn: BuiltinHost,
   sessionId: string,
   cwd: string,
   args: Record<string, unknown>,
@@ -355,7 +370,7 @@ async function readFileTool(
 }
 
 async function writeFileTool(
-  conn: acp.AgentSideConnection,
+  conn: BuiltinHost,
   sessionId: string,
   cwd: string,
   args: Record<string, unknown>,

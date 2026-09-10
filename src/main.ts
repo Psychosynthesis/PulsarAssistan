@@ -47,10 +47,29 @@ function createView(
   return view;
 }
 
+function pathFromCommandEvent(event?: CommandEvent): string | undefined {
+  const candidates: Array<EventTarget | null | undefined> = [
+    event?.target,
+    event?.currentTarget,
+  ];
+  for (const candidate of candidates) {
+    const start =
+      candidate instanceof Element
+        ? candidate
+        : candidate instanceof Node
+          ? candidate.parentElement
+          : null;
+    const node = start?.closest("[data-path]");
+    const filePath = node?.getAttribute("data-path");
+    if (filePath) return filePath;
+  }
+  return undefined;
+}
+
 function notifyNoProject(): void {
   atom.notifications.addWarning("Pulsar Assistant", {
     description:
-      "Open a file that belongs to a project folder, then run Open for this project.",
+      "Open a file, or right-click a file in the tree view, that belongs to a project folder.",
   });
 }
 
@@ -72,7 +91,7 @@ async function openForCurrentProject(opts: {
   filePath?: string | null;
 }): Promise<void> {
   const filePath =
-    opts.filePath ??
+    opts.filePath ||
     atom.workspace.getCenter().getActiveTextEditor()?.getPath();
   const root = resolveCurrentProjectRoot(filePath);
   if (!root) {
@@ -134,15 +153,27 @@ export function activate(): void {
     atom.commands.add("atom-workspace", {
       "pulsar-assistant:open-for-project": {
         displayName: "Pulsar Assistant: Open for this Project",
-        didDispatch: () => openForCurrentProject({ focus: true }),
+        didDispatch: (event) =>
+          openForCurrentProject({
+            focus: true,
+            filePath: pathFromCommandEvent(event),
+          }),
       },
       "pulsar-assistant:toggle": {
         displayName: "Pulsar Assistant: Toggle Panel",
-        didDispatch: () => openForCurrentProject({ toggle: true }),
+        didDispatch: (event) =>
+          openForCurrentProject({
+            toggle: true,
+            filePath: pathFromCommandEvent(event),
+          }),
       },
       "pulsar-assistant:focus": {
         displayName: "Pulsar Assistant: Focus Panel",
-        didDispatch: () => openForCurrentProject({ focus: true }),
+        didDispatch: (event) =>
+          openForCurrentProject({
+            focus: true,
+            filePath: pathFromCommandEvent(event),
+          }),
       },
       "pulsar-assistant:edit-agents": {
         displayName: "Pulsar Assistant: Edit Agents",
@@ -179,15 +210,15 @@ export function activate(): void {
     atom.contextMenu.add({
       "atom-text-editor": [
         {
-          label: "Open ACP for this Project",
+          label: "Open for this Project",
           command: "pulsar-assistant:open-for-project",
         },
         {
-          label: "Add Active File to ACP Prompt",
+          label: "Add Active File to Prompt",
           command: "pulsar-assistant:add-active-file-to-prompt",
         },
         {
-          label: "Add Selection to ACP Prompt",
+          label: "Add Selection to Prompt",
           command: "pulsar-assistant:add-selection-to-prompt",
           shouldDisplay: () => editorHasSelection(),
         },

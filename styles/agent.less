@@ -91,6 +91,20 @@
   box-shadow: 0 2px 8px fade(black, 30%);
 }
 
+.pulsar-assistant-picker-group {
+  padding: (@component-padding / 2) (@component-padding * 1.5) 2px;
+  color: @text-color-subtle;
+  font-size: 0.75em;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
+.pulsar-assistant-picker-item + .pulsar-assistant-picker-group {
+  margin-top: (@component-padding / 4);
+}
+
 .pulsar-assistant-picker-item {
   display: block;
   position: relative;

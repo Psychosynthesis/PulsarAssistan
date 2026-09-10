@@ -7,7 +7,7 @@
 A simple, minimalist plugin that provides coding assistant functionality using any model into [Pulsar](https://pulsar-edit.dev),
 without the need to run a full-fledged ACP agent locally.
 
-Support [Agent Client Protocol (ACP)](https://agentclientprotocol.com)-compatible agents such as `Copilot CLI`/`Vibe`.
+Support [Agent Client Protocol (ACP)](https://agentclientprotocol.com)-compatible agents such as `Copilot CLI / Vibe`.
 
 Uses some modules of the code from the project <https://github.com/hovancik/pulsar-acp-agent>.
 
@@ -15,10 +15,8 @@ _Pulsar Assistant running an ACP-compatible coding agent inside Pulsar._
 
 Highlights:
 
-- Open a separate ACP panel per project folder. ACP stays off until you open it
-  for that project.
-- Talk to an OpenAI-compatible API from inside Pulsar (builtin ACP agent), or
-  fall back to a spawned ACP CLI such as Copilot CLI / Vibe.
+- Open a separate ACP panel per project folder. ACP stays off until you open it for that project.
+- Talk to an OpenAI-compatible API from inside Pulsar, or spawn a local ACP CLI such as `Copilot CLI / Vibe`.
 - Attach the current file or selection to prompts.
 - Review permission prompts, tool output, diffs, plans, and session history inline.
 - Configure and switch between APIs from the panel header.
@@ -69,9 +67,19 @@ Command and test policy is a separate opt-in map you write yourself — see
 config, not in the repo.
 
 If several folders are open and no file is focused, open a file in the project
-first.
+or right-click one in the tree view.
 
 ## Configure APIs and agents
+
+Each entry in `agents` is one of two kinds. Put `type` on every agent so the
+split is visible in `config.cson` and in the header picker:
+
+| `type` | How it runs |
+| --- | --- |
+| `openai` | HTTP to an OpenAI-compatible `/chat/completions`. In-process. No ACP stdio. |
+| `acp` | Spawn a local CLI (`command`) and speak Agent Client Protocol over real stdio. |
+
+Legacy `type: "command"` is accepted and stored as `acp`.
 
 ### Example: OpenAI-compatible API
 
@@ -88,6 +96,7 @@ first.
       # stream: false   # set true later if the API grows SSE /chat/completions
     copilot:
       name: "GitHub Copilot"
+      type: "acp"
       command: "copilot --acp --stdio"
   projects:
     "/home/you/code/app":
@@ -142,17 +151,19 @@ Defaults:
   package activates.
 - send host context: enabled
 
-### Selecting an API
+### Selecting an agent
 
-The API picker in the header (top-left) shows the API or spawned agent for
+The picker in the header (top-left) groups **API** and **ACP** agents for
 **this panel** and lets you switch or open **Edit configuration…**. Switching
 stops the current agent and clears the conversation. See [Agent details](#agent-details)
 for the connected agent's live runtime info.
 
-The `agents` map in `config.cson` is the global registry of APIs and spawn
-commands — names, URLs, models, keys — not which folders you opened. Spawn
-entries use `command` (full command line over stdio). `npx @google/gemini-cli
---experimental-acp` works without a global install.
+![Agent picker menu in the panel header](docs/images/agent-picker.png)
+
+The `agents` map in `config.cson` is the global registry — names, URLs, models,
+keys, spawn commands — not which folders you opened. API entries use `baseUrl`
+and `model`. ACP entries use `command` (full command line over stdio).
+`npx @google/gemini-cli --experimental-acp` works without a global install.
 
 Run **Pulsar Assistant: Edit Agents** (also in the picker and the Packages menu)
 to open the config file. Changes apply on the next Restart or Switch.
@@ -168,10 +179,8 @@ Wrap a path that contains spaces in double quotes, e.g.
 `"C:\Program Files\agent\agent.exe" --acp --stdio`.
 
 By default, Pulsar Assistant also sends a short host-context hint once per
-session so the agent knows the conversation is happening through Pulsar, while
-also making clear that the agent cannot directly control Pulsar's UI. Disable
-**Send host context** in package settings if you do not want this extra context
-included in prompts.
+session so a spawned ACP agent knows the conversation is happening through Pulsar, while also making clear that the agent cannot directly control Pulsar's UI.
+Disable **Send host context** in package settings if you do not want this extra context included in prompts. API agents get the same idea from their system prompt instead.
 
 ## Develop
 

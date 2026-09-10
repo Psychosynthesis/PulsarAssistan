@@ -10,6 +10,7 @@ import {
 import {
   AgentsConfig,
   LaunchTarget,
+  groupAgents,
   isLaunchedAgentStale,
   launchTargetsEqual,
   resolveAgent,
@@ -292,8 +293,8 @@ export class PulsarAssistantView {
     const reason = resolveAgent(this.agentsConfig, this.selectedAgentId).reason;
     this.setLifecycleStatus(
       reason === "no-agents"
-        ? "No APIs configured \u2014 use the picker to add one."
-        : "No API selected \u2014 pick one from the menu.",
+        ? "No agents configured \u2014 use the picker to add one."
+        : "No agent selected \u2014 pick one from the menu.",
     );
     this.setAgentStatus("idle");
     this.renderAgentPicker();
@@ -337,8 +338,8 @@ export class PulsarAssistantView {
       atom.tooltips.add(this.agentPicker, {
         title: () =>
           isLaunchedAgentStale(this.agentsConfig, this.session.launchedAgent?.id)
-            ? "This API was removed from config; pick another to switch."
-            : "Switch API",
+            ? "This agent was removed from config; pick another to switch."
+            : "Switch agent",
         placement: "right",
       }),
     );
@@ -346,7 +347,7 @@ export class PulsarAssistantView {
     this.agentMenu.classList.add("pulsar-assistant-picker-menu");
     this.agentMenu.id = this.agentMenuId;
     this.agentMenu.setAttribute("role", "menu");
-    this.agentMenu.setAttribute("aria-label", "APIs");
+    this.agentMenu.setAttribute("aria-label", "Agents");
     this.agentMenu.style.display = "none";
     const onPickerKey = (event: KeyboardEvent) => {
       if (event.key === "Escape" && this.agentMenuOpen) {
@@ -1225,7 +1226,7 @@ export class PulsarAssistantView {
       target = this.resolveTarget();
       if (!target) {
         this.appendError(
-          "No API configured. Use the picker to add or select one.",
+          "No agent configured. Use the picker to add or select one.",
         );
         this.setAgentStatus("error");
         return;
@@ -1353,7 +1354,7 @@ export class PulsarAssistantView {
           type: "warning",
           message: `Switch to ${agent.name}?`,
           detail:
-            "The current API is still responding. Switching stops it and clears this conversation.",
+            "The current agent is still responding. Switching stops it and clears this conversation.",
           buttons: ["Switch", "Cancel"],
           defaultId: 1,
         },
@@ -1373,7 +1374,7 @@ export class PulsarAssistantView {
       this.setActiveAgentId(target.id);
     }
     this.resetSessionForRelaunch();
-    this.setLifecycleStatus("Idle \u2014 starting API\u2026");
+    this.setLifecycleStatus("Idle \u2014 starting agent\u2026");
     this.updateInputControls();
     this.activeTarget = target;
     this.renderAgentPicker();
@@ -1417,8 +1418,8 @@ export class PulsarAssistantView {
     if (this.activeTarget) return this.activeTarget.name;
     const resolved = resolveAgent(this.agentsConfig, this.selectedAgentId);
     if (resolved.reason === "ok" && resolved.agent) return resolved.agent.name;
-    if (resolved.reason === "no-agents") return "No APIs";
-    return "Select API";
+    if (resolved.reason === "no-agents") return "No agents";
+    return "Select agent";
   }
 
   private renderAgentPicker(): void {
@@ -1430,26 +1431,33 @@ export class PulsarAssistantView {
     this.agentPicker.classList.toggle("is-stale", stale);
 
     this.agentMenu.innerHTML = "";
-    const entries = Object.entries(this.agentsConfig.agents);
-    for (const [id, agent] of entries) {
-      const item = document.createElement("button");
-      item.classList.add("pulsar-assistant-picker-item");
-      item.setAttribute("role", "menuitem");
-      if (id === this.pickerSelectedId()) {
-        item.classList.add("is-active");
-        item.setAttribute("aria-current", "true");
+    const groups = groupAgents(this.agentsConfig.agents);
+    const selectedId = this.pickerSelectedId();
+    for (const group of groups) {
+      const header = document.createElement("div");
+      header.classList.add("pulsar-assistant-picker-group");
+      header.textContent = group.type === "openai" ? "API" : "ACP";
+      this.agentMenu.appendChild(header);
+      for (const [id, agent] of group.entries) {
+        const item = document.createElement("button");
+        item.classList.add("pulsar-assistant-picker-item");
+        item.setAttribute("role", "menuitem");
+        if (id === selectedId) {
+          item.classList.add("is-active");
+          item.setAttribute("aria-current", "true");
+        }
+        item.textContent = agent.name;
+        item.addEventListener("click", () => {
+          this.closeAgentMenu();
+          this.switchAgent(id);
+        });
+        this.agentMenu.appendChild(item);
       }
-      item.textContent = agent.name;
-      item.addEventListener("click", () => {
-        this.closeAgentMenu();
-        this.switchAgent(id);
-      });
-      this.agentMenu.appendChild(item);
     }
-    if (entries.length === 0) {
+    if (groups.length === 0) {
       const empty = document.createElement("div");
       empty.classList.add("pulsar-assistant-picker-empty");
-      empty.textContent = "No APIs configured";
+      empty.textContent = "No agents configured";
       this.agentMenu.appendChild(empty);
     }
     const separator = document.createElement("div");
@@ -3333,7 +3341,7 @@ export class PulsarAssistantView {
   }
 
   getTitle(): string {
-    return `ACP \u00b7 ${projectFolderName(this.projectRoot)}`;
+    return `Pulsar Assistant | ${projectFolderName(this.projectRoot)}`;
   }
 
   getURI(): string {

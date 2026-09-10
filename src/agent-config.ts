@@ -5,10 +5,12 @@ import { parseCommandLine } from "./util";
 // built lib/agent-config.js (like util.ts). All atom.config glue lives at the
 // call sites and delegates here.
 
-export type AgentType = "command" | "openai";
+export type AgentType = "openai" | "acp";
 
 export interface Agent {
   name: string;
+  // Written to config: "openai" = HTTP API, "acp" = spawned CLI.
+  // Legacy `type: "command"` is accepted and stored as "acp".
   type?: AgentType;
   command?: string;
   baseUrl?: string;
@@ -24,10 +26,10 @@ export interface AgentsConfig {
   agents: Record<string, Agent>;
 }
 
-export type CommandLaunchTarget = {
+export type AcpLaunchTarget = {
   id: string;
   name: string;
-  kind: "command";
+  kind: "acp";
   command: string;
 };
 
@@ -41,7 +43,7 @@ export type OpenaiLaunchTarget = {
   stream: boolean;
 };
 
-export type LaunchTarget = CommandLaunchTarget | OpenaiLaunchTarget;
+export type LaunchTarget = AcpLaunchTarget | OpenaiLaunchTarget;
 
 export type ResolveReason = "ok" | "no-agents" | "unset-or-invalid";
 
@@ -80,9 +82,10 @@ function optionalString(value: unknown): string | undefined {
 }
 
 function agentType(entry: Record<string, unknown>): AgentType | null {
-  if (entry.type === "openai" || entry.type === "command") return entry.type;
+  if (entry.type === "openai") return "openai";
+  if (entry.type === "acp" || entry.type === "command") return "acp";
   if (optionalString(entry.baseUrl) && optionalString(entry.model)) return "openai";
-  if (optionalString(entry.command)) return "command";
+  if (optionalString(entry.command)) return "acp";
   return null;
 }
 
@@ -91,7 +94,7 @@ function isUsableAgent(entry: Record<string, unknown>): boolean {
   if (type === "openai") {
     return !!(optionalString(entry.baseUrl) && optionalString(entry.model));
   }
-  if (type === "command") return !!optionalString(entry.command);
+  if (type === "acp") return !!optionalString(entry.command);
   return false;
 }
 
@@ -129,13 +132,8 @@ function normalizeAgent(
       : id;
   const type = agentType(entry);
   if (!type) return null;
-  const agent: Agent = { ...(entry as Record<string, unknown>), name };
-  if (entry.type === "openai" || entry.type === "command") {
-    agent.type = entry.type;
-  } else {
-    delete agent.type;
-  }
-  if (type === "command" && agent.command) agent.command = agent.command.trim();
+  const agent: Agent = { ...(entry as Record<string, unknown>), name, type };
+  if (type === "acp" && agent.command) agent.command = agent.command.trim();
   if (type === "openai") {
     if (agent.baseUrl) agent.baseUrl = agent.baseUrl.trim().replace(/\/+$/, "");
     if (agent.model) agent.model = agent.model.trim();
@@ -218,7 +216,7 @@ export function migrateAgentsConfig(
       ? legacyCommand.trim()
       : DEFAULT_AGENT_COMMAND;
   const seed = seedAgentFromCommand(command);
-  config.agents = { [seed.id]: { name: seed.name, type: "command", command } };
+  config.agents = { [seed.id]: { name: seed.name, type: "acp", command } };
   config.activeAgentId = seed.id;
   return { config, changed: true };
 }
@@ -271,7 +269,7 @@ export function toLaunchTarget(
   agent: Agent,
   env: NodeJS.Dict<string> = process.env,
 ): LaunchTarget {
-  const type = agent.type ?? (agent.command ? "command" : "openai");
+  const type = agent.type ?? (agent.command ? "acp" : "openai");
   if (type === "openai") {
     const baseUrl = optionalString(agent.baseUrl);
     const model = optionalString(agent.model);
@@ -302,7 +300,22 @@ export function toLaunchTarget(
       `Agent "${agent.name}" has no command. Edit the agent config.`,
     );
   }
-  return { id, name: agent.name, kind: "command", command };
+  return { id, name: agent.name, kind: "acp", command };
+}
+
+export function groupAgents(
+  agents: Record<string, Agent>,
+): Array<{ type: AgentType; entries: Array<[string, Agent]> }> {
+  const openai: Array<[string, Agent]> = [];
+  const acp: Array<[string, Agent]> = [];
+  for (const entry of Object.entries(agents)) {
+    if (entry[1].type === "openai") openai.push(entry);
+    else acp.push(entry);
+  }
+  const groups: Array<{ type: AgentType; entries: Array<[string, Agent]> }> = [];
+  if (openai.length > 0) groups.push({ type: "openai", entries: openai });
+  if (acp.length > 0) groups.push({ type: "acp", entries: acp });
+  return groups;
 }
 
 export function launchTargetsEqual(
@@ -311,7 +324,7 @@ export function launchTargetsEqual(
 ): boolean {
   if (!a || !b) return false;
   if (a.id !== b.id || a.kind !== b.kind) return false;
-  if (a.kind === "command" && b.kind === "command") {
+  if (a.kind === "acp" && b.kind === "acp") {
     return a.command === b.command;
   }
   if (a.kind === "openai" && b.kind === "openai") {

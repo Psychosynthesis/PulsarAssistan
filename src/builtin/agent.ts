@@ -14,6 +14,7 @@ import {
   requestToolPermission,
   toolsForPolicy,
 } from "./tools";
+import type { BuiltinHost } from "./tools";
 import type { ProjectPolicy } from "../project-policy";
 
 declare const __PULSAR_ACP_AGENT_VERSION__: string;
@@ -26,7 +27,7 @@ type SessionState = {
 
 function systemPrompt(cwd: string): string {
   return [
-    "You are a coding agent inside the Pulsar editor, connected through an OpenAI-compatible API or a spawned ACP CLI.",
+    "You are a coding agent inside the Pulsar editor, talking to an OpenAI-compatible API.",
     `The project working directory is ${cwd}. Stay inside it.`,
     "Use read_file, write_file, grep, glob, and list_dir to inspect and change the project.",
     "Prefer grep/glob/list_dir over running programs for search. grep is a JavaScript regex walk and works on Windows.",
@@ -55,12 +56,12 @@ function promptToText(blocks: acp.ContentBlock[]): string {
   return parts.join("\n\n").trim();
 }
 
-export class BuiltinAgent implements acp.Agent {
+export class BuiltinAgent {
   private sessions = new Map<string, SessionState>();
   private readonly client: OpenAiChatClient;
 
   constructor(
-    private readonly conn: acp.AgentSideConnection,
+    private readonly conn: BuiltinHost,
     private readonly target: OpenaiLaunchTarget,
     private readonly getPolicy: () => ProjectPolicy,
   ) {
@@ -84,8 +85,6 @@ export class BuiltinAgent implements acp.Agent {
       },
     };
   }
-
-  async authenticate(_params: acp.AuthenticateRequest): Promise<void> {}
 
   async newSession(params: acp.NewSessionRequest): Promise<acp.NewSessionResponse> {
     const sessionId = randomUUID();
