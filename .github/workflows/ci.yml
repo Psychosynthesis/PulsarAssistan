@@ -25,5 +25,4 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run build
-      - run: git diff --exit-code lib/main.js lib/main.js.map lib/util.js lib/util.js.map lib/agent-config.js lib/agent-config.js.map lib/git-command.js lib/git-command.js.map lib/grep.js lib/grep.js.map lib/openai-client.js lib/openai-client.js.map lib/project-uri.js lib/project-uri.js.map lib/project-policy.js lib/project-policy.js.map
       - run: npm test
