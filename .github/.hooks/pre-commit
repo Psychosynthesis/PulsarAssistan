@@ -1,0 +1,131 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "Run precommit hook"
+
+npm run style
+
+# -------------------------------------------------------------------
+# Проверка размера изображений
+# -------------------------------------------------------------------
+
+MAX_BYTES=$((1024 * 1024)) # 1 MiB
+
+# Имена файлов, для которых проверка размера отключена
+EXCEPTIONS=(
+  "mascot_work.png"
+)
+
+is_exception() {
+  local name="$1"
+  local exception
+
+  for exception in "${EXCEPTIONS[@]}"; do
+    if [[ "$name" == "$exception" ]]; then
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+errors=()
+
+while IFS= read -r -d '' file; do
+  base="${file##*/}"
+
+  # Регистронезависимая проверка расширения
+  case "$base" in
+    *.[Pp][Nn][Gg] | \
+    *.[Jj][Pp][Gg] | \
+    *.[Jj][Pp][Ee][Gg] | \
+    *.[Ss][Vv][Gg])
+      ;;
+    *)
+      continue
+      ;;
+  esac
+
+  if is_exception "$base"; then
+    continue
+  fi
+
+  # Проверяем размер именно версии файла, добавленной в staging
+  size="$(git cat-file -s ":$file" 2>/dev/null || true)"
+
+  if [[ ! "$size" =~ ^[0-9]+$ ]]; then
+    continue
+  fi
+
+  if ((size > MAX_BYTES)); then
+    size_mb="$(awk -v size="$size" 'BEGIN {
+      printf "%.2f", size / 1024 / 1024
+    }')"
+
+    errors+=("$file (${size_mb} MiB > 1 MiB)")
+  fi
+done < <(git diff --cached --name-only -z --diff-filter=ACM)
+
+if ((${#errors[@]} > 0)); then
+  echo "❌ Слишком большие изображения, лимит — 1 MiB:" >&2
+  printf '  - %s\n' "${errors[@]}" >&2
+  echo "Оптимизируй файлы или добавь имя в EXCEPTIONS в deploy/.hooks/pre-commit" >&2
+  exit 1
+fi
+
+# -------------------------------------------------------------------
+# Проверка пробелов в именах файлов внутри src
+# -------------------------------------------------------------------
+
+files_with_spaces=()
+
+while IFS= read -r -d '' file; do
+  if [[ "$file" == src/* && "$file" == *" "* ]]; then
+    files_with_spaces+=("$file")
+  fi
+done < <(git diff --cached --name-only -z --diff-filter=ACMR)
+
+if ((${#files_with_spaces[@]} > 0)); then
+  echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+  echo "Ошибка: в именах файлов внутри src обнаружены пробелы:"
+  printf '  - %s\n' "${files_with_spaces[@]}"
+  echo "Переименуй файлы без пробелов и попробуй снова."
+  exit 1
+fi
+
+# -------------------------------------------------------------------
+# Проверка JWT в отслеживаемых файлах src
+# -------------------------------------------------------------------
+
+jwt_pattern='eyJ[a-zA-Z0-9_-]*\.[a-zA-Z0-9_-]*\.[a-zA-Z0-9_-]*'
+found=0
+
+while IFS= read -r -d '' file; do
+  case "$file" in
+    src/*.json | src/*.js | src/*.jsx | src/*.ts | src/*.tsx)
+      ;;
+    *)
+      continue
+      ;;
+  esac
+
+  if grep -E -q "$jwt_pattern" < <(git show ":$file"); then
+    echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+    echo "Обнаружен JWT в файле: $file"
+    found=1
+  fi
+done < <(git ls-files --cached --full-name -z)
+
+if ((found != 0)); then
+  exit 1
+fi
+
+echo "Pre-commit проверка больших файлов и токенов пройдена"
+
+## TODO! После исправления поменять на npm run lint
+if ! npx biome lint --staged .; then
+  echo "Biome нашёл ошибки, но коммит пока не блокируется"
+fi
+
+npm run test
+npx tsc --noEmit

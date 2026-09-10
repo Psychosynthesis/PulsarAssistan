@@ -29,10 +29,15 @@ function optionalString(value: unknown): string | undefined {
 }
 
 function positiveInt(value: unknown): number | null {
-  if (typeof value !== "number" || !Number.isFinite(value) || value < 1) {
+  if (
+    typeof value !== "number" ||
+    !Number.isFinite(value) ||
+    !Number.isInteger(value) ||
+    value < 1
+  ) {
     return null;
   }
-  return Math.trunc(value);
+  return value;
 }
 
 export function resolveProjectPolicy(
