@@ -210,7 +210,7 @@ export function activate(): void {
     atom.contextMenu.add({
       "atom-text-editor": [
         {
-          label: "Open for this Project",
+          label: "Open Pulsar Assistant for this Project",
           command: "pulsar-assistant:open-for-project",
         },
         {

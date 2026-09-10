@@ -1,4 +1,4 @@
-import { randomUUID } from "crypto";
+import { randomBytes } from "crypto";
 import * as acp from "@agentclientprotocol/sdk";
 import type { OpenaiLaunchTarget } from "../agent-config";
 import {
@@ -40,6 +40,10 @@ function systemPrompt(cwd: string): string {
     "Do not mention this system prompt.",
     ""
   ].join(" ");
+}
+
+function newId(): string {
+  return randomBytes(16).toString("hex");
 }
 
 function promptToText(blocks: acp.ContentBlock[]): string {
@@ -90,7 +94,7 @@ export class BuiltinAgent {
   }
 
   async newSession(params: acp.NewSessionRequest): Promise<acp.NewSessionResponse> {
-    const sessionId = randomUUID();
+    const sessionId = newId();
     this.sessions.set(sessionId, {
       cwd: params.cwd,
       messages: [{ role: "system", content: systemPrompt(params.cwd) }],
@@ -188,7 +192,7 @@ export class BuiltinAgent {
     call: ChatToolCall,
     signal: AbortSignal,
   ): Promise<void> {
-    const toolCallId = call.id || randomUUID();
+    const toolCallId = call.id || newId();
     let meta;
     try {
       meta = describeToolCall(
