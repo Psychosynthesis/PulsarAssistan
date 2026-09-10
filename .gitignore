@@ -1,0 +1,4 @@
+node_modules/
+*.tsbuildinfo
+
+# Do NOT ignore lib/. for keep the built bundle (lib/) committed.

@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          # Match Pulsar's runtime: Electron 30.5.1 bundles Node 20.16.0.
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - run: git diff --exit-code lib/main.js lib/main.js.map lib/util.js lib/util.js.map lib/agent-config.js lib/agent-config.js.map lib/grep.js lib/grep.js.map lib/openai-client.js lib/openai-client.js.map lib/project-uri.js lib/project-uri.js.map lib/project-policy.js lib/project-policy.js.map
+      - run: npm test

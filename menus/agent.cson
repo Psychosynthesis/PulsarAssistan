@@ -1,0 +1,37 @@
+'menu': [
+  {
+    'label': 'Packages'
+    'submenu': [
+      {
+        'label': 'Pulsar Assistant'
+        'submenu': [
+          {
+            'label': 'Open for this Project'
+            'command': 'pulsar-assistant:open-for-project'
+          }
+          {
+            'label': 'Toggle Panel'
+            'command': 'pulsar-assistant:toggle'
+          }
+          {
+            'label': 'Focus Panel'
+            'command': 'pulsar-assistant:focus'
+          }
+          {
+            'label': 'Edit Agents'
+            'command': 'pulsar-assistant:edit-agents'
+          }
+        ]
+      }
+    ]
+  }
+]
+
+'context-menu':
+  '.pulsar-assistant':
+    [
+      {
+        'label': 'Copy'
+        'command': 'core:copy'
+      }
+    ]
