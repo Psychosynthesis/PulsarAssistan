@@ -45,6 +45,19 @@ export type OpenAiClientOptions = {
   fetch?: typeof fetch;
 };
 
+export type OpenAiModelInfo = {
+  id: string;
+  description?: string;
+};
+
+export type FetchOpenAiModelsOptions = {
+  baseUrl: string;
+  apiKey: string;
+  modelsUrl?: string;
+  fetch?: typeof fetch;
+  signal?: AbortSignal;
+};
+
 type ChatCompletionChoice = {
   finish_reason?: string | null;
   message?: {
@@ -64,6 +77,11 @@ type ChatCompletionChoice = {
 
 type ChatCompletionResponse = {
   choices?: ChatCompletionChoice[];
+  error?: { message?: string };
+};
+
+type ModelsResponse = {
+  data?: unknown;
   error?: { message?: string };
 };
 
@@ -91,6 +109,17 @@ export class OpenAiHttpError extends Error {
   ) {
     super(message);
     this.name = "OpenAiHttpError";
+  }
+}
+
+export class OpenAiModelsError extends Error {
+  constructor(
+    message: string,
+    readonly status: number | null,
+    readonly body: string,
+  ) {
+    super(message);
+    this.name = "OpenAiModelsError";
   }
 }
 
@@ -220,6 +249,63 @@ export class OpenAiChatClient {
       signal,
     });
   }
+}
+
+export async function fetchOpenAiModels(
+  options: FetchOpenAiModelsOptions,
+): Promise<OpenAiModelInfo[]> {
+  const fetchImpl = options.fetch ?? boundFetch;
+  const url = trimSlash(
+    options.modelsUrl ?? `${trimSlash(options.baseUrl)}/models`,
+  );
+  const response = await fetchImpl(url, {
+    method: "GET",
+    headers: {
+      authorization: `Bearer ${options.apiKey}`,
+    },
+    signal: options.signal,
+  });
+  const text = await response.text();
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new OpenAiModelsError(
+      `Model list returned non-JSON (${response.status})`,
+      response.status,
+      text,
+    );
+  }
+  const object: ModelsResponse =
+    parsed && typeof parsed === "object"
+      ? (parsed as ModelsResponse)
+      : {};
+  if (!response.ok) {
+    throw new OpenAiModelsError(
+      object.error?.message || `Model list error ${response.status}`,
+      response.status,
+      text,
+    );
+  }
+
+  const rawData = Array.isArray(object.data) ? object.data : [];
+  const models: OpenAiModelInfo[] = [];
+  for (const item of rawData) {
+    if (!item || typeof item !== "object") continue;
+    const id = typeof item.id === "string" ? item.id.trim() : "";
+    if (!id) continue;
+    const description =
+      typeof item.description === "string" && item.description.trim() !== ""
+        ? item.description.trim()
+        : undefined;
+    models.push(description ? { id, description } : { id });
+  }
+  if (models.length === 0) {
+    throw new OpenAiModelsError("Model list is empty.", response.status, text);
+  }
+  models.sort((a, b) => a.id.localeCompare(b.id));
+  return models;
 }
 
 async function* readSseData(

@@ -9,6 +9,7 @@ const STATUS_LABELS: Record<AgentStatus, string> = {
   ready: "Ready",
   working: "Working\u2026",
   awaiting: "Awaiting confirmation\u2026",
+  warning: "Model list unavailable",
   error: "Error",
 };
 

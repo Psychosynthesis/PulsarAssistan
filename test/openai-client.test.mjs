@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { OpenAiChatClient } from "../lib/openai-client.js";
+import { OpenAiChatClient, fetchOpenAiModels } from "../lib/openai-client.js";
 
 test("OpenAiChatClient: non-stream complete yields text then done", async () => {
   const fetchImpl = async () =>
@@ -131,4 +131,58 @@ test("OpenAiChatClient: stream path accepts CRLF SSE", async () => {
     { type: "text", text: "Hi" },
     { type: "done", finishReason: "stop" },
   ]);
+});
+
+test("fetchOpenAiModels: uses the default /models endpoint", async () => {
+  const fetchImpl = async (url, init) => {
+    assert.equal(url, "https://api.example/v1/models");
+    assert.equal(init.headers.authorization, "Bearer k");
+    return new Response(
+      JSON.stringify({
+        data: [
+          { id: "b", description: "Second" },
+          { id: "a" },
+        ],
+      }),
+      { status: 200 },
+    );
+  };
+  const models = await fetchOpenAiModels({
+    baseUrl: "https://api.example/v1",
+    apiKey: "k",
+    fetch: fetchImpl,
+  });
+  assert.deepEqual(models, [
+    { id: "a" },
+    { id: "b", description: "Second" },
+  ]);
+});
+
+test("fetchOpenAiModels: honors a custom modelsUrl", async () => {
+  const fetchImpl = async (url) => {
+    assert.equal(url, "https://example.com/custom/models");
+    return new Response(JSON.stringify({ data: [{ id: "x" }] }), {
+      status: 200,
+    });
+  };
+  const models = await fetchOpenAiModels({
+    baseUrl: "https://api.example/v1",
+    apiKey: "k",
+    modelsUrl: "https://example.com/custom/models",
+    fetch: fetchImpl,
+  });
+  assert.deepEqual(models, [{ id: "x" }]);
+});
+
+test("fetchOpenAiModels: throws when the list is empty", async () => {
+  const fetchImpl = async () =>
+    new Response(JSON.stringify({ data: [] }), { status: 200 });
+  await assert.rejects(
+    fetchOpenAiModels({
+      baseUrl: "https://api.example/v1",
+      apiKey: "k",
+      fetch: fetchImpl,
+    }),
+    /Model list is empty/,
+  );
 });

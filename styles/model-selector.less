@@ -1,0 +1,32 @@
+@import "ui-variables";
+
+.pulsar-assistant-model-wrap {
+  position: relative;
+  flex-shrink: 1;
+  min-width: 0;
+}
+
+.pulsar-assistant-model-selector {
+  display: inline-flex;
+  align-items: center;
+}
+
+.pulsar-assistant-model-trigger {
+  max-width: 14em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pulsar-assistant-model-menu {
+  top: 100%;
+  bottom: auto;
+  left: 0;
+  max-width: 24em;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.pulsar-assistant-status-tile-dot[data-status="warning"] {
+  background-color: @text-color-warning;
+}

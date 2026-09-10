@@ -21,6 +21,26 @@ const BLOCKED_ANYWHERE = new Set([
   "--bare",
 ]);
 
+const BRANCH_MUTATING = new Set([
+  "-m",
+  "--move",
+  "-c",
+  "--copy",
+  "-d",
+  "--delete",
+  "--track",
+  "--no-track",
+]);
+
+const BRANCH_BLOCKED = new Set([
+  "-M",
+  "-C",
+  "-D",
+  "-f",
+  "--force",
+  "--edit-description",
+]);
+
 export type GitPlan = {
   args: string[];
   needsPermission: boolean;
@@ -38,6 +58,20 @@ function hasCommitMessage(argv: string[]): boolean {
     if (/^-.*m/.test(token) && !token.startsWith("--")) return true;
   }
   return false;
+}
+
+function branchNeedsPermission(args: string[]): boolean {
+  const tokens = args.slice(1);
+  if (tokens.some((token) => BRANCH_MUTATING.has(flagName(token)))) {
+    return true;
+  }
+  // `git branch <name> [<start-point>]` creates a branch. Any subcommand flag
+  // makes this a read-only listing/filter form, so only bare positional args
+  // count as a create request.
+  return (
+    tokens.length > 0 &&
+    tokens.every((token) => !token.startsWith("-") && token !== "--")
+  );
 }
 
 // `argv` is already split (no shell). A leading `git` token is ignored.
@@ -66,42 +100,37 @@ export function planGitCommand(argv: string[]): GitPlan {
   }
   if (!ALLOWED.has(sub)) {
     throw new Error(
-      `git ${sub} is not allowed. Allowed: status, diff, log, show, branch, blame, checkout, switch, add, commit.`,
+      `git ${sub} is not allowed. Allowed: status, diff, log, show, branch, blame, rev-parse, ls-files, checkout, switch, add, commit.`,
     );
   }
 
-  for (const token of argv) {
-    if (BLOCKED_ANYWHERE.has(flagName(token))) {
-      throw new Error(`git option ${flagName(token)} is not allowed.`);
-    }
-  }
+  const commandArgs = argv.slice(i);
 
-  if (
-    sub === "branch" &&
-    argv.some(
-      (token) =>
-        token === "-d" ||
-        token === "-D" ||
-        token === "--delete" ||
-        token === "-f" ||
-        token === "--force",
-    )
-  ) {
-    throw new Error("git branch delete/force is not allowed.");
+  if (sub === "branch") {
+    const blocked = commandArgs.find((token) =>
+      BRANCH_BLOCKED.has(flagName(token)),
+    );
+    if (blocked) {
+      throw new Error(
+        `git branch option ${flagName(blocked)} is not allowed.`,
+      );
+    }
   }
 
   if (sub === "commit") {
-    if (!hasCommitMessage(argv)) {
+    if (!hasCommitMessage(commandArgs)) {
       throw new Error('git commit requires -m "message".');
     }
-    if (!argv.includes("--no-verify") && !argv.includes("-n")) {
+    if (!commandArgs.includes("--no-verify") && !commandArgs.includes("-n")) {
       argv = [...argv, "--no-verify"];
     }
   }
 
   return {
     args: argv,
-    needsPermission: WRITE.has(sub),
+    needsPermission:
+      WRITE.has(sub) ||
+      (sub === "branch" && branchNeedsPermission(commandArgs)),
     title: `git ${argv.join(" ")}`,
   };
 }

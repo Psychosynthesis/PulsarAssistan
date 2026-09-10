@@ -120,6 +120,7 @@ async function walkFiles(
     } catch {
       continue;
     }
+    entries.sort((a, b) => a.name.localeCompare(b.name));
     for (const entry of entries) {
       const absolutePath = path.join(current.dir, entry.name);
       const relativePath = current.relative

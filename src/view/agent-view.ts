@@ -10,6 +10,7 @@ import {
 import {
   AgentsConfig,
   LaunchTarget,
+  OpenaiLaunchTarget,
   groupAgents,
   isLaunchedAgentStale,
   launchTargetsEqual,
@@ -26,10 +27,14 @@ import {
 import {
   CFG_NS,
   readAgentsConfig,
+  readProjectPolicy,
   setActiveAgentId,
+  setProjectMaxTurnRequests,
 } from "./config-store";
 import { ConfigSelector, SelectConfigOption } from "./config-selector";
 import { renderMarkdown as renderMarkdownHtml } from "./markdown";
+import { ModelSelector } from "./model-selector";
+import { fetchOpenAiModels, OpenAiModelInfo } from "../openai-client";
 import { projectFolderName, uriForProject } from "../project-uri";
 
 const TEXT_NODE_TYPE = 3;
@@ -41,6 +46,7 @@ export type AgentStatus =
   | "ready"
   | "working"
   | "awaiting"
+  | "warning"
   | "error";
 
 export interface AgentStatusReporter {
@@ -65,8 +71,11 @@ type ToolView = {
   title: HTMLElement;
   status: HTMLElement;
   body: HTMLElement;
+  summary: HTMLElement;
   toggle: HTMLButtonElement;
   expanded: boolean;
+  collapsible: boolean;
+  diff: boolean;
   location: acp.ToolCallLocation | null;
   locationTooltip: Disposable | null;
 };
@@ -131,6 +140,18 @@ export class PulsarAssistantView {
   // serialized with the dock item. Global activeAgentId is only the default
   // for a newly opened panel.
   private selectedAgentId: string | undefined;
+  // Panel-local model selection for `openai` agents. The registry's
+  // `defaultModel` is only the default for a newly opened panel.
+  private selectedModelId: string | null = null;
+  private modelSelectorWrap!: HTMLElement;
+  private modelSelector: ModelSelector | null = null;
+  private modelList: OpenAiModelInfo[] | null = null;
+  private modelsLoading = false;
+  private modelWarning = false;
+  private modelFetchGeneration = 0;
+  private modelFetchController: AbortController | null = null;
+  // Tool kinds approved for the current session from a permission prompt.
+  private sessionApprovedKinds = new Set<string>();
   // The agent we last asked to launch (display snapshot + stale-detection id).
   private activeTarget: LaunchTarget | null = null;
   private infoButton!: HTMLButtonElement;
@@ -145,6 +166,7 @@ export class PulsarAssistantView {
   private awaitingAuth = false;
   private authCard: HTMLElement | null = null;
   private input!: HTMLTextAreaElement;
+  private maxTurnRequestsInput!: HTMLInputElement;
   private slashMenu!: HTMLElement;
   private slashHint!: HTMLElement;
   private readonly slashMenuId = `pulsar-assistant-slash-menu-${nextAgentMenuId++}`;
@@ -204,10 +226,11 @@ export class PulsarAssistantView {
   constructor(
     readonly projectRoot: string,
     reporter: AgentStatusReporter | null = null,
-    options: { selectedAgentId?: string } = {},
+    options: { selectedAgentId?: string; selectedModelId?: string } = {},
   ) {
     this.reporter = reporter;
     this.selectedAgentId = options.selectedAgentId;
+    this.selectedModelId = options.selectedModelId ?? null;
     this.subscriptions = new CompositeDisposable();
     this.agentsConfig = readAgentsConfig();
     this.session = new AgentSession(projectRoot);
@@ -222,6 +245,8 @@ export class PulsarAssistantView {
       atom.config.onDidChange(CFG_NS, () => this.refreshFromConfig()),
     );
     this.renderAgentPicker();
+    this.renderModelSelector();
+    this.refreshTurnLimitInput();
     this.setLifecycleStatus("Idle \u2014 type a message to start the agent.");
     this.setAgentStatus("idle");
 
@@ -265,6 +290,9 @@ export class PulsarAssistantView {
 
   private startTarget(target: LaunchTarget): void {
     this.disconnectStartObserver();
+    this.activeTarget = target;
+    this.renderAgentPicker();
+    this.syncModelSelectorForTarget(target);
     const currentSession = this.session;
     this.session.start(target).catch((error) => {
       if (this.session !== currentSession) return;
@@ -280,13 +308,110 @@ export class PulsarAssistantView {
     const resolved = resolveAgent(this.agentsConfig, this.selectedAgentId);
     if (resolved.reason === "ok" && resolved.agent && resolved.id) {
       try {
-        return toLaunchTarget(resolved.id, resolved.agent);
+        return toLaunchTarget(
+          resolved.id,
+          resolved.agent,
+          process.env,
+          this.selectedModelId ?? undefined,
+        );
       } catch (error) {
         this.appendError(error instanceof Error ? error.message : String(error));
         return null;
       }
     }
     return null;
+  }
+
+  private syncModelSelectorForTarget(target: LaunchTarget): void {
+    if (target.kind === "openai") {
+      if (!this.selectedModelId) this.selectedModelId = target.model;
+      this.renderModelSelector();
+      void this.fetchModelsForTarget(target);
+      return;
+    }
+    this.modelSelector?.closeMenu();
+    this.renderModelSelector();
+  }
+
+  private renderModelSelector(): void {
+    if (!this.modelSelector || !this.modelSelectorWrap) return;
+    const target = this.activeTarget;
+    if (target?.kind !== "openai") {
+      this.modelSelector.closeMenu();
+      this.modelSelectorWrap.style.display = "none";
+      return;
+    }
+    this.modelSelectorWrap.style.display = "";
+    this.modelSelector.render(
+      this.selectedModelId ?? target.model,
+      this.modelList,
+      this.modelsLoading,
+    );
+  }
+
+  private modelSelectorDisabled(): boolean {
+    return (
+      this.session.running ||
+      this.session.switching ||
+      this.preparingPrompt ||
+      this.awaitingAuth ||
+      this.modelList == null ||
+      this.modelsLoading
+    );
+  }
+
+  private selectModel(id: string): void {
+    if (this.modelSelectorDisabled()) return;
+    const target = this.activeTarget;
+    if (!target || target.kind !== "openai") return;
+    const agent = this.agentsConfig.agents[target.id];
+    if (!agent) return;
+    let next: LaunchTarget;
+    try {
+      next = toLaunchTarget(target.id, agent, process.env, id);
+    } catch (error) {
+      this.appendError(error instanceof Error ? error.message : String(error));
+      return;
+    }
+    this.performSwitch(next);
+  }
+
+  private async fetchModelsForTarget(
+    target: OpenaiLaunchTarget,
+  ): Promise<void> {
+    this.modelFetchController?.abort();
+    const controller = new AbortController();
+    this.modelFetchController = controller;
+    const generation = ++this.modelFetchGeneration;
+    this.modelList = null;
+    this.modelsLoading = true;
+    this.modelWarning = false;
+    this.renderModelSelector();
+    try {
+      const models = await fetchOpenAiModels({
+        baseUrl: target.baseUrl,
+        apiKey: target.apiKey,
+        modelsUrl: target.modelsUrl,
+        signal: controller.signal,
+      });
+      if (generation !== this.modelFetchGeneration || controller.signal.aborted) {
+        return;
+      }
+      this.modelList = models;
+      this.modelsLoading = false;
+      this.modelWarning = false;
+      this.renderModelSelector();
+      if (this.infoPanelOpen) this.renderInfoPanel();
+    } catch (error) {
+      if (generation !== this.modelFetchGeneration || controller.signal.aborted) {
+        return;
+      }
+      this.modelList = null;
+      this.modelsLoading = false;
+      this.modelWarning = true;
+      this.renderModelSelector();
+      this.setAgentStatus("warning");
+    }
   }
 
   private renderNoAgentIdle(): void {
@@ -298,6 +423,7 @@ export class PulsarAssistantView {
     );
     this.setAgentStatus("idle");
     this.renderAgentPicker();
+    this.renderModelSelector();
     this.updateInputControls();
   }
 
@@ -400,6 +526,47 @@ export class PulsarAssistantView {
       atom.tooltips.add(this.restartButton, { title: "Restart agent" }),
     );
     row1.appendChild(pickerWrap);
+
+    this.modelSelectorWrap = document.createElement("div");
+    this.modelSelectorWrap.classList.add("pulsar-assistant-model-wrap");
+    this.modelSelectorWrap.style.display = "none";
+    this.modelSelector = new ModelSelector(
+      (id) => this.selectModel(id),
+      () => this.modelSelectorDisabled(),
+      () => {
+        this.closeAgentMenu();
+        this.closeAllConfigMenus();
+      },
+    );
+    this.modelSelectorWrap.appendChild(this.modelSelector.element);
+    row1.appendChild(this.modelSelectorWrap);
+
+    const onModelDocClick = (event: MouseEvent) => {
+      if (
+        this.modelSelector?.isOpen &&
+        !this.modelSelector.contains(event.target as Node)
+      ) {
+        this.modelSelector.closeMenu();
+      }
+    };
+    document.addEventListener("click", onModelDocClick);
+    this.subscriptions.add(
+      new Disposable(() =>
+        document.removeEventListener("click", onModelDocClick),
+      ),
+    );
+    const onModelKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && this.modelSelector?.isOpen) {
+        this.modelSelector.closeMenu();
+        this.modelSelector.focusButton();
+      }
+    };
+    document.addEventListener("keydown", onModelKeyDown);
+    this.subscriptions.add(
+      new Disposable(() =>
+        document.removeEventListener("keydown", onModelKeyDown),
+      ),
+    );
 
     this.sessionsToggle = document.createElement("button");
     this.sessionsToggle.classList.add(
@@ -569,6 +736,7 @@ export class PulsarAssistantView {
     );
     actions.appendChild(this.buildContextControl());
     actions.appendChild(this.buildConfigSelectors());
+    actions.appendChild(this.buildTurnLimitControl());
 
     const actionButtons = document.createElement("div");
     actionButtons.classList.add("pulsar-assistant-action-buttons");
@@ -651,8 +819,66 @@ export class PulsarAssistantView {
     return container;
   }
 
+  private buildTurnLimitControl(): HTMLElement {
+    const wrap = document.createElement("div");
+    wrap.classList.add("pulsar-assistant-turn-limit");
+
+    const label = document.createElement("label");
+    label.textContent = "Tool turns";
+    label.htmlFor = "pulsar-assistant-turn-limit-input";
+
+    this.maxTurnRequestsInput = document.createElement("input");
+    this.maxTurnRequestsInput.id = "pulsar-assistant-turn-limit-input";
+    this.maxTurnRequestsInput.type = "number";
+    this.maxTurnRequestsInput.min = "1";
+    this.maxTurnRequestsInput.max = "100";
+    this.maxTurnRequestsInput.step = "1";
+    this.maxTurnRequestsInput.placeholder = "20";
+    this.maxTurnRequestsInput.addEventListener("change", () => {
+      this.saveTurnLimit();
+    });
+
+    this.subscriptions.add(
+      atom.tooltips.add(wrap, {
+        title:
+          "Maximum tool calls in one turn for this project. Empty uses the default (20).",
+        placement: "top",
+        trigger: "hover",
+      }),
+    );
+
+    wrap.appendChild(label);
+    wrap.appendChild(this.maxTurnRequestsInput);
+    return wrap;
+  }
+
+  private refreshTurnLimitInput(): void {
+    if (!this.maxTurnRequestsInput) return;
+    const policy = readProjectPolicy(this.projectRoot);
+    this.maxTurnRequestsInput.value =
+      policy.maxTurnRequests == null ? "" : String(policy.maxTurnRequests);
+  }
+
+  private saveTurnLimit(): void {
+    const raw = this.maxTurnRequestsInput.value.trim();
+    if (!raw) {
+      setProjectMaxTurnRequests(this.projectRoot, null);
+      this.refreshTurnLimitInput();
+      return;
+    }
+    const value = Number(raw);
+    if (!Number.isInteger(value) || value < 1 || value > 100) {
+      this.refreshTurnLimitInput();
+      this.appendError("Tool turns must be a whole number from 1 to 100.");
+      return;
+    }
+    setProjectMaxTurnRequests(this.projectRoot, value);
+    this.refreshTurnLimitInput();
+  }
+
   private closeAllConfigMenus(): void {
     for (const selector of this.configSelectors) selector.closeMenu();
+    this.modelSelector?.closeMenu();
   }
 
   private updateConfigSelectorsDisabled(): void {
@@ -995,6 +1221,11 @@ export class PulsarAssistantView {
     const agentName = info.title || info.name;
     if (agentName) addRow("Agent", agentName);
 
+    const modelId = this.currentModelId();
+    if (modelId) addRow("Model", modelId);
+    const modelDescription = this.currentModelDescription();
+    if (modelDescription) addRow("Model description", modelDescription);
+
     const versionValue = document.createElement("span");
     versionValue.classList.add("pulsar-assistant-info-value");
     versionValue.textContent = info.version;
@@ -1234,6 +1465,7 @@ export class PulsarAssistantView {
     }
     this.activeTarget = target;
     this.renderAgentPicker();
+    if (!live) this.syncModelSelectorForTarget(target);
 
     const currentSession = this.session;
     this.preparingPrompt = true;
@@ -1370,6 +1602,7 @@ export class PulsarAssistantView {
 
   private performSwitch(target: LaunchTarget): void {
     this.selectedAgentId = target.id;
+    this.selectedModelId = target.kind === "openai" ? target.model : null;
     if (readAgentsConfig().activeAgentId !== target.id) {
       this.setActiveAgentId(target.id);
     }
@@ -1390,6 +1623,8 @@ export class PulsarAssistantView {
   refreshFromConfig(): void {
     this.agentsConfig = readAgentsConfig();
     this.renderAgentPicker();
+    this.renderModelSelector();
+    this.refreshTurnLimitInput();
   }
 
   // Called once after activate() seeds/migrates config. Picks up the migrated
@@ -1545,8 +1780,15 @@ export class PulsarAssistantView {
     this.currentTokens = null;
     this.agentExited = false;
     this.settingConfig.clear();
+    this.modelFetchController?.abort();
+    this.modelFetchController = null;
+    this.modelFetchGeneration++;
+    this.modelList = null;
+    this.modelsLoading = false;
+    this.modelWarning = false;
     this.renderLiveRow();
     this.renderConfigSelectors();
+    this.renderModelSelector();
     this.renderPill();
     this.infoPanel.style.display = "none";
     this.infoPanel.innerHTML = "";
@@ -1583,6 +1825,7 @@ export class PulsarAssistantView {
     this.preparingPrompt = false;
     this.clearContext();
     this.endStreamingBlocks();
+    this.sessionApprovedKinds.clear();
     this.stickToBottom = true;
     this.generatingIndicator = null;
   }
@@ -1759,7 +2002,7 @@ export class PulsarAssistantView {
         this.endAwaitingAuth();
         this.hideLoadingOverlay();
         this.renderPill();
-        this.setAgentStatus("ready");
+        this.setAgentStatus(this.modelWarning ? "warning" : "ready");
         this.restoreLiveStateFor(this.session.sessionId);
         this.renderConfigSelectors();
         if (event.source === "new") {
@@ -1791,7 +2034,7 @@ export class PulsarAssistantView {
         this.updateSessionControls();
         break;
       case "turn-end":
-        this.setAgentStatus("ready");
+        this.setAgentStatus(this.modelWarning ? "warning" : "ready");
         this.stopButton.disabled = true;
         this.setGeneratingState(null);
         this.updateInputControls();
@@ -2434,7 +2677,9 @@ export class PulsarAssistantView {
       this.awaitingAuth;
     this.sendButton.disabled = busy;
     this.contextTrigger.disabled = busy;
+    this.maxTurnRequestsInput.disabled = busy;
     this.updateConfigSelectorsDisabled();
+    this.modelSelector?.updateDisabled();
   }
 
   private appendNote(text: string): void {
@@ -2468,14 +2713,31 @@ export class PulsarAssistantView {
       heading.appendChild(title);
       const body = document.createElement("div");
       body.classList.add("pulsar-assistant-tool-body");
+      const summary = document.createElement("div");
+      summary.classList.add("pulsar-assistant-tool-summary");
+      summary.style.display = "none";
       const toggle = document.createElement("button");
       toggle.classList.add("pulsar-assistant-tool-toggle");
       toggle.style.display = "none";
       toggle.setAttribute("aria-expanded", "false");
       element.appendChild(heading);
       element.appendChild(body);
+      element.appendChild(summary);
       element.appendChild(toggle);
-      tool = { element, heading, title, status, body, toggle, expanded: false, location: null, locationTooltip: null };
+      tool = {
+        element,
+        heading,
+        title,
+        status,
+        body,
+        summary,
+        toggle,
+        expanded: false,
+        collapsible: false,
+        diff: false,
+        location: null,
+        locationTooltip: null,
+      };
       const view = tool;
       toggle.addEventListener("click", () => {
         view.expanded = !view.expanded;
@@ -2522,12 +2784,7 @@ export class PulsarAssistantView {
       tool.status.textContent = statuses[update.status] || "";
     }
     if (Array.isArray(update.content)) {
-      tool.body.textContent = "";
-      for (const item of update.content) {
-        if (item.type === "terminal") continue;
-        tool.body.appendChild(this.renderToolContent(item));
-      }
-      this.updateToolOverflow(tool);
+      this.updateToolBody(tool, update.content);
     }
     this.scrollToBottom();
   }
@@ -2552,24 +2809,64 @@ export class PulsarAssistantView {
     }
   }
 
+  private updateToolBody(
+    tool: ToolView,
+    content: acp.ToolCallContent[],
+  ): void {
+    tool.body.textContent = "";
+    for (const item of content) {
+      if (item.type === "terminal") continue;
+      tool.body.appendChild(this.renderToolContent(item));
+    }
+
+    const lines = this.toolBodyLineCount(tool.body);
+    const diff = content.some((item) => item.type === "diff");
+    tool.diff = diff;
+    tool.collapsible = lines > (diff ? 20 : 3);
+    tool.summary.textContent = this.toolBodySummary(tool, lines);
+    this.applyToolOverflow(tool);
+  }
+
+  private toolBodyLineCount(body: HTMLElement): number {
+    const text = body.innerText ?? body.textContent ?? "";
+    return text
+      .split(/\r?\n/)
+      .filter((line) => line.trim().length > 0).length;
+  }
+
+  private toolBodySummary(tool: ToolView, lines: number): string {
+    if (tool.diff) return `${lines} diff lines`;
+    if (tool.element.dataset.kind === "search") return `${lines} results`;
+    return `${lines} output lines`;
+  }
+
   private applyToolExpansion(tool: ToolView): void {
+    this.applyToolOverflow(tool);
+    this.scrollToBottom();
+  }
+
+  private applyToolOverflow(tool: ToolView): void {
     tool.body.classList.toggle(
       "pulsar-assistant-tool-body--expanded",
       tool.expanded,
     );
+    tool.body.classList.toggle(
+      "pulsar-assistant-tool-body--collapsed",
+      tool.collapsible && !tool.expanded,
+    );
+    tool.body.classList.toggle(
+      "pulsar-assistant-tool-body--collapsed-text",
+      tool.collapsible && !tool.expanded && !tool.diff,
+    );
+    tool.body.classList.toggle(
+      "pulsar-assistant-tool-body--collapsed-diff",
+      tool.collapsible && !tool.expanded && tool.diff,
+    );
+    tool.summary.style.display =
+      tool.collapsible && !tool.expanded ? "" : "none";
+    tool.toggle.style.display = tool.collapsible ? "" : "none";
     tool.toggle.textContent = tool.expanded ? "Show less" : "Show more";
     tool.toggle.setAttribute("aria-expanded", String(tool.expanded));
-    this.updateToolOverflow(tool);
-    this.scrollToBottom();
-  }
-
-  private updateToolOverflow(tool: ToolView): void {
-    // While expanded the cap is lifted, so keep the toggle visible to collapse.
-    // While collapsed, only offer it when the body actually overflows the cap.
-    const overflowing =
-      tool.expanded || tool.body.scrollHeight > tool.body.clientHeight + 1;
-    tool.toggle.style.display = overflowing ? "" : "none";
-    if (!tool.expanded) tool.toggle.textContent = "Show more";
   }
 
   private renderToolContent(item: acp.ToolCallContent): HTMLElement {
@@ -2861,6 +3158,19 @@ export class PulsarAssistantView {
   ): void {
     const toolCall = params.toolCall;
     const toolTitle = toolCall?.title || "an action";
+    const kind = toolCall?.kind;
+
+    if (kind && this.sessionApprovedKinds.has(kind)) {
+      const option = params.options?.find((o) => o.kind === "allow_once");
+      if (option) {
+        respond({ outcome: { outcome: "selected", optionId: option.optionId } });
+        if (this.session.running) {
+          this.setGeneratingState("working");
+          this.setAgentStatus("working");
+        }
+        return;
+      }
+    }
 
     if (this.autoApprovePermissions) {
       const option =
@@ -2881,7 +3191,7 @@ export class PulsarAssistantView {
     const block = document.createElement("div");
     block.classList.add("pulsar-assistant-permission");
     block.dataset.toolTitle = toolTitle;
-    if (toolCall?.kind) block.dataset.kind = toolCall.kind;
+    if (kind) block.dataset.kind = kind;
 
     const kindIcons: Record<string, string> = {
       read: "file-text",
@@ -2895,7 +3205,7 @@ export class PulsarAssistantView {
       switch_mode: "git-compare",
       other: "tools",
     };
-    const iconName = toolCall?.kind ? (kindIcons[toolCall.kind] ?? "tools") : "tools";
+    const iconName = kind ? (kindIcons[kind] ?? "tools") : "tools";
 
     // Helper: build icon span + label text
     const makeLabel = (label: string): DocumentFragment => {
@@ -2945,17 +3255,17 @@ export class PulsarAssistantView {
     }
 
     // Prominent command/URL extracted from rawInput
-    if (toolCall?.rawInput != null && toolCall.kind != null) {
+    if (toolCall?.rawInput != null && kind != null) {
       const raw = toolCall.rawInput as Record<string, unknown>;
       const commands: string[] = [];
-      if (toolCall.kind === "execute") {
+      if (kind === "execute") {
         if (typeof raw["command"] === "string") {
           commands.push(raw["command"]);
         } else if (Array.isArray(raw["commands"])) {
           for (const c of raw["commands"])
             if (typeof c === "string") commands.push(c);
         }
-      } else if (toolCall.kind === "fetch") {
+      } else if (kind === "fetch") {
         if (typeof raw["url"] === "string") commands.push(raw["url"]);
       }
       if (commands.length > 0) {
@@ -2986,19 +3296,24 @@ export class PulsarAssistantView {
     // Option buttons with kind-aware styling
     const buttons = document.createElement("div");
     buttons.classList.add("pulsar-assistant-permission-options");
+
+    const settle = (optionId: string, label: string): void => {
+      respond({
+        outcome: { outcome: "selected", optionId },
+      });
+      for (const child of Array.from(buttons.children))
+        (child as HTMLButtonElement).disabled = true;
+      block.dataset.resolved = optionId;
+      question.replaceChildren(makeLabel(`${label} \u2014 ${toolTitle}`));
+      if (this.session.running) {
+        this.setGeneratingState("working");
+        this.setAgentStatus("working");
+      }
+    };
+
     for (const option of params.options || []) {
       const button = this.makeButton(option.name, () => {
-        respond({
-          outcome: { outcome: "selected", optionId: option.optionId },
-        });
-        for (const child of Array.from(buttons.children))
-          (child as HTMLButtonElement).disabled = true;
-        block.dataset.resolved = option.optionId;
-        question.replaceChildren(makeLabel(`${option.name} \u2014 ${toolTitle}`));
-        if (this.session.running) {
-          this.setGeneratingState("working");
-          this.setAgentStatus("working");
-        }
+        settle(option.optionId, option.name);
       });
       button.dataset.optionKind = option.kind;
       if (option.kind === "reject_once" || option.kind === "reject_always")
@@ -3007,6 +3322,17 @@ export class PulsarAssistantView {
         button.classList.add("pulsar-assistant-allow-always");
       buttons.appendChild(button);
     }
+
+    const allowOnce = params.options?.find((o) => o.kind === "allow_once");
+    if (allowOnce && kind) {
+      const sessionAllow = this.makeButton("Allow for this session", () => {
+        this.sessionApprovedKinds.add(kind);
+        settle(allowOnce.optionId, "Allow for this session");
+      });
+      sessionAllow.dataset.optionKind = "allow_once";
+      buttons.appendChild(sessionAllow);
+    }
+
     block.appendChild(buttons);
 
     this.conversation.appendChild(block);
@@ -3256,6 +3582,17 @@ export class PulsarAssistantView {
     return info ? info.title || info.name : null;
   }
 
+  private currentModelId(): string | null {
+    if (this.activeTarget?.kind !== "openai") return null;
+    return this.selectedModelId ?? this.activeTarget.model;
+  }
+
+  private currentModelDescription(): string | null {
+    const id = this.currentModelId();
+    if (!id || !this.modelList) return null;
+    return this.modelList.find((model) => model.id === id)?.description ?? null;
+  }
+
   private renderLiveRow(): void {
     let text = this.currentTokens ?? "";
     let isLifecycle = false;
@@ -3372,11 +3709,13 @@ export class PulsarAssistantView {
     deserializer: string;
     projectRoot: string;
     selectedAgentId?: string;
+    selectedModelId?: string;
   } {
     return {
       deserializer: "PulsarAssistantView",
       projectRoot: this.projectRoot,
       selectedAgentId: this.selectedAgentId ?? this.activeTarget?.id,
+      selectedModelId: this.selectedModelId ?? undefined,
     };
   }
 
@@ -3386,6 +3725,10 @@ export class PulsarAssistantView {
     if (this.streamRenderHandle !== null) {
       cancelAnimationFrame(this.streamRenderHandle);
     }
+    this.modelFetchController?.abort();
+    this.modelFetchController = null;
+    this.modelSelector?.dispose();
+    this.modelSelector = null;
     this.reporter?.clear(this);
     this.sessionTooltips.dispose();
     this.conversationTooltips.dispose();

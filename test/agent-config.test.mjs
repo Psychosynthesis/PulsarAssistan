@@ -375,3 +375,60 @@ test("launchTargetsEqual: openai identity includes model and key", () => {
   assert.equal(launchTargetsEqual(a, c), false);
 });
 
+test("toLaunchTarget: openai defaults model to defaultModel over legacy model", () => {
+  const target = toLaunchTarget(
+    "ours",
+    {
+      name: "Ours",
+      type: "openai",
+      baseUrl: "https://api.example/v1/",
+      defaultModel: "prod",
+      model: "legacy",
+      apiKey: "k",
+    },
+    {},
+  );
+  assert.equal(target.kind, "openai");
+  if (target.kind === "openai") {
+    assert.equal(target.model, "prod");
+    assert.equal(target.modelsUrl, "https://api.example/v1/models");
+  }
+});
+
+test("toLaunchTarget: openai accepts an explicit panel model", () => {
+  const target = toLaunchTarget(
+    "ours",
+    {
+      name: "Ours",
+      type: "openai",
+      baseUrl: "https://api.example/v1",
+      defaultModel: "prod",
+      apiKey: "k",
+    },
+    {},
+    "chosen",
+  );
+  assert.equal(target.kind, "openai");
+  if (target.kind === "openai") {
+    assert.equal(target.model, "chosen");
+  }
+});
+
+test("toLaunchTarget: openai honors a custom getModelsUrl", () => {
+  const target = toLaunchTarget(
+    "ours",
+    {
+      name: "Ours",
+      type: "openai",
+      baseUrl: "https://api.example/v1",
+      defaultModel: "prod",
+      apiKey: "k",
+      getModelsUrl: "https://example.com/custom/models",
+    },
+    {},
+  );
+  assert.equal(target.kind, "openai");
+  if (target.kind === "openai") {
+    assert.equal(target.modelsUrl, "https://example.com/custom/models");
+  }
+});

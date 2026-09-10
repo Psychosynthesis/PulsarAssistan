@@ -26,17 +26,20 @@ export type SerializedViewState = {
   deserializer?: string;
   projectRoot?: string;
   selectedAgentId?: string;
+  selectedModelId?: string;
 };
 
 function createView(
   projectRoot: string,
   selectedAgentId?: string,
+  selectedModelId?: string,
 ): PulsarAssistantView {
   for (const existing of views) {
     if (sameProjectRoot(existing.projectRoot, projectRoot)) return existing;
   }
   const view = new PulsarAssistantView(projectRoot, getIndicator(), {
     selectedAgentId,
+    selectedModelId,
   });
   const destroy = view.destroy.bind(view);
   view.destroy = () => {
@@ -240,7 +243,7 @@ export function deserializePulsarAssistantView(
 ): PulsarAssistantView | undefined {
   const root = state.projectRoot;
   if (!root || !isOpenProjectRoot(root)) return undefined;
-  return createView(root, state.selectedAgentId);
+  return createView(root, state.selectedAgentId, state.selectedModelId);
 }
 
 export function deactivate(): void {

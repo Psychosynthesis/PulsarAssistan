@@ -150,7 +150,7 @@ export const TOOL_DEFINITIONS: ChatTool[] = [
     function: {
       name: "git",
       description:
-        "Run git in the project root. Always available; does not need allowCommands. Pass arguments after git, e.g. status, diff, branch, checkout -b topic, add -A, commit -m \"msg\". Not a shell. No push, pull, fetch, reset, rebase, or branch -d. checkout, switch, add, and commit ask for permission. commit needs -m.",
+        "Run git in the project root. Always available; does not need allowCommands. Pass arguments after git, e.g. status, diff, branch, checkout -b topic, add -A, commit -m \"msg\". Not a shell. No push, pull, fetch, reset, rebase, force branch options, or --edit-description. checkout, switch, add, commit, and mutating branch operations (create, rename, delete) ask for permission. commit needs -m.",
       parameters: {
         type: "object",
         additionalProperties: false,

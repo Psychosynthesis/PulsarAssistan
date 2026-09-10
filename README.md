@@ -33,7 +33,7 @@ fallback. Currently tested with GitHub Copilot CLI and Mistral Vibe.
   - [Example: OpenAI-compatible API](#example-openai-compatible-api)
   - [Project commands and tests](#project-commands-and-tests)
   - [Example: Copilot CLI](#example-copilot-cli)
-  - [Selecting an API](#selecting-an-api)
+  - [Selecting an agent and model](#selecting-an-agent-and-model)
 - [Develop](#develop)
 - [Architecture](#architecture)
 - [Testing](#testing)
@@ -90,34 +90,43 @@ Legacy `type: "command"` is accepted and stored as `acp`.
     deepseek:
       apiKey: "YOUR_KEY"
       baseUrl: "https://api.deepseek.com"
-      model: "deepseek-v4-pro"
+      defaultModel: "deepseek-v4-pro"
       name: "DeepSeek"
       type: "openai"
     openai:
       apiKey: "YOUR_KEY"
       baseUrl: "https://api.openai.com/v1"
-      model: "gpt-5.6-terra"
+      defaultModel: "gpt-5.6-terra"
       name: "OpenAI"
       type: "openai"
     yandex:
       apiKey: "YOUR_KEY"
       baseUrl: "https://ai.api.cloud.yandex.net/v1"
-      model: "gpt://b1gl8cdftb40gvn0nmtu/yandexgpt-5.1"
+      defaultModel: "gpt://b1gl8cdftb40gvn0nmtu/yandexgpt-5.1"
       name: "YandexGPT"
       type: "openai"
   projects:
     "/home/you/code/app":
       allowCommands: true
       testCommand: "npm test"
+      maxTurnRequests: 20
   version: 1
 ```
 
 `activeAgentId` is only the default for a *newly opened* panel. It is not a map
 of projects. Each panel remembers its own selection on the dock item.
 
-Builtin tools: `read_file`, `write_file`, `grep`, `glob`, `list_dir`.
+For `type: "openai"`, `defaultModel` is the default model for a newly opened
+panel. The `model` field is read the same way. The optional `getModelsUrl`
+overrides the standard `{baseUrl}/models` endpoint when a provider serves its
+model list elsewhere. If the model list cannot be fetched, the panel asks you to
+configure the exact model and continues with `defaultModel`.
+
+Builtin tools: `read_file`, `write_file`, `grep`, `glob`, `list_dir`, `git`.
 `run_command` and `run_tests` are off unless you opt in per folder (below).
-`grep` is a JavaScript walk (works on Windows; no system grep).
+`grep` is a JavaScript walk (works on Windows; no system grep). `git` is
+always available without `allowCommands`, but only for a fixed allowlist of
+subcommands; write operations ask for permission.
 
 Image attachments are not supported and are not planned.
 
@@ -135,10 +144,14 @@ could rewrite a file in the repo.
     "/absolute/path/to/the/project":
       allowCommands: true        # optional; omit or false = no run_command
       testCommand: "npm test"    # optional; omit = no run_tests
+      maxTurnRequests: 20        # optional; maximum tool calls in one turn
 ```
 
 `allowCommands` is a boolean. `testCommand` is the exact command line
-(`run_tests` cannot change it). Keys are absolute project roots.
+(`run_tests` cannot change it). `maxTurnRequests` is a positive integer
+overriding the default maximum number of tool calls in one turn. Keys are
+absolute project roots. The **Tool turns** input in the panel edits
+`maxTurnRequests` for the current project.
 
 Spawned ACP CLIs still run as their own process and can execute commands without
 going through this package. Use the builtin API agent if you want these
@@ -158,18 +171,23 @@ Defaults:
   package activates.
 - send host context: enabled
 
-### Selecting an agent
+### Selecting an agent and model
 
 The picker in the header (top-left) groups **API** and **ACP** agents for
 **this panel** and lets you switch or open **Edit configuration…**. Switching
 stops the current agent and clears the conversation. See [Agent details](#agent-details)
 for the connected agent's live runtime info.
 
+For API agents, a model selector sits next to the agent picker. It lists the
+models reported by the provider's `/models` endpoint and keeps the selected
+model on the dock item for this panel. Choosing a model restarts the agent with
+that model.
+
 ![Agent picker menu in the panel header](docs/images/agent-picker.png)
 
 The `agents` map in `config.cson` is the global registry — names, URLs, models,
 keys, spawn commands — not which folders you opened. API entries use `baseUrl`
-and `model`. ACP entries use `command` (full command line over stdio).
+and `defaultModel`. ACP entries use `command` (full command line over stdio).
 `npx @google/gemini-cli --experimental-acp` works without a global install.
 
 Run **Pulsar Assistant: Edit Agents** (also in the picker and the Packages menu)
@@ -257,6 +275,14 @@ package. They do not restrict what a spawned agent does in its own process:
   `allowCommands` is true for that folder in Pulsar user config (outside the
   repo). `run_tests` runs only the configured `testCommand`. Both use
   `cross-spawn` without a shell. Stop cancels the turn.
+- Builtin `git` runs in the project root without a shell and does not require
+  `allowCommands`. It allows only status, diff, log, show, branch, blame,
+  rev-parse, ls-files, checkout, switch, add, and commit. Checkout, switch, add,
+  commit, and mutating branch operations (create, rename, delete) ask for
+  permission; push/pull/fetch, reset/rebase, and force branch operations are
+  rejected.
+- `maxTurnRequests` limits the number of tool calls in one turn when set in
+  `pulsar-assistant.projects`.
 
 These are guard rails for a cooperating builtin agent, not a security boundary
 for spawned CLIs. A spawned ACP agent can still run commands in its own process.
