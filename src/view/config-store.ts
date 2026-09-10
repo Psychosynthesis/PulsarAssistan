@@ -8,6 +8,7 @@ import {
   resolveProjectPolicy,
   type ProjectPolicy,
 } from "../project-policy";
+import { normalizeProjectRoot, sameProjectRoot } from "../project-uri";
 
 // Config glue. The agent registry lives under our namespace as sibling keys;
 // the pure agent-config / project-policy modules own the logic.
@@ -30,6 +31,10 @@ function rawAgentsConfig(): Record<string, unknown> {
   return raw;
 }
 
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 export function readAgentsConfig(): AgentsConfig {
   return normalizeAgentsConfig(rawAgentsConfig());
 }
@@ -50,6 +55,42 @@ export function setActiveAgentId(id: string): void {
 
 export function readProjectPolicy(projectRoot: string): ProjectPolicy {
   return resolveProjectPolicy(projectRoot, atom.config.get(CFG_PROJECTS));
+}
+
+// Persist only the max-turn-requests knob for one project while preserving all
+// other project entries and sibling fields in `pulsar-assistant.projects`.
+export function setProjectMaxTurnRequests(
+  projectRoot: string,
+  value: number | null,
+): void {
+  const raw = atom.config.get(CFG_PROJECTS);
+  const projects: Record<string, unknown> = isObject(raw) ? { ...raw } : {};
+
+  let targetKey: string | undefined;
+  for (const key of Object.keys(projects)) {
+    if (sameProjectRoot(key, projectRoot)) {
+      targetKey = key;
+      break;
+    }
+  }
+  const key = targetKey ?? normalizeProjectRoot(projectRoot);
+  const entry: Record<string, unknown> = isObject(projects[key])
+    ? { ...(projects[key] as Record<string, unknown>) }
+    : {};
+
+  if (value == null) {
+    delete entry.maxTurnRequests;
+  } else {
+    entry.maxTurnRequests = value;
+  }
+
+  if (Object.keys(entry).length === 0) {
+    delete projects[key];
+  } else {
+    projects[key] = entry;
+  }
+
+  atom.config.set(CFG_PROJECTS, projects);
 }
 
 // Runs once in activate(): seed/migrate the registry and drop the superseded

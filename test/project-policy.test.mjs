@@ -8,6 +8,7 @@ test("resolveProjectPolicy: denies when projects is missing", () => {
   assert.deepEqual(resolveProjectPolicy(root, undefined), {
     allowCommands: false,
     testCommand: null,
+    maxTurnRequests: null,
   });
 });
 
@@ -18,6 +19,25 @@ test("resolveProjectPolicy: matches a configured project root", () => {
   });
   assert.equal(policy.allowCommands, true);
   assert.equal(policy.testCommand, "npm test");
+  assert.equal(policy.maxTurnRequests, null);
+});
+
+test("resolveProjectPolicy: reads a positive maxTurnRequests", () => {
+  const root = path.resolve("/tmp/app");
+  const policy = resolveProjectPolicy(root, {
+    [root]: { maxTurnRequests: 7 },
+  });
+  assert.equal(policy.maxTurnRequests, 7);
+});
+
+test("resolveProjectPolicy: ignores invalid maxTurnRequests", () => {
+  const root = path.resolve("/tmp/app");
+  for (const value of [0, -1, 1.5, "12", null, undefined]) {
+    const policy = resolveProjectPolicy(root, {
+      [root]: { maxTurnRequests: value },
+    });
+    assert.equal(policy.maxTurnRequests, null);
+  }
 });
 
 test("resolveProjectPolicy: ignore allowCommands unless it is boolean true", () => {
@@ -39,6 +59,7 @@ test("resolveProjectPolicy: does not match a sibling folder", () => {
   });
   assert.equal(policy.allowCommands, false);
   assert.equal(policy.testCommand, null);
+  assert.equal(policy.maxTurnRequests, null);
 });
 
 test("resolveProjectPolicy: matches equivalent path forms", () => {

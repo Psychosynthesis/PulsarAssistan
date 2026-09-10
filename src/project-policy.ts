@@ -9,9 +9,14 @@ export const CFG_PROJECTS = "pulsar-assistant.projects";
 export type ProjectPolicy = {
   allowCommands: boolean;
   testCommand: string | null;
+  maxTurnRequests: number | null;
 };
 
-const DENY: ProjectPolicy = { allowCommands: false, testCommand: null };
+const DENY: ProjectPolicy = {
+  allowCommands: false,
+  testCommand: null,
+  maxTurnRequests: null,
+};
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -21,6 +26,13 @@ function optionalString(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
   return trimmed === "" ? undefined : trimmed;
+}
+
+function positiveInt(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 1) {
+    return null;
+  }
+  return Math.trunc(value);
 }
 
 export function resolveProjectPolicy(
@@ -34,6 +46,7 @@ export function resolveProjectPolicy(
     return {
       allowCommands: value.allowCommands === true,
       testCommand: optionalString(value.testCommand) ?? null,
+      maxTurnRequests: positiveInt(value.maxTurnRequests),
     };
   }
   return DENY;

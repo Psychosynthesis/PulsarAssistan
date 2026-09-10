@@ -16,7 +16,9 @@ export interface Agent {
   baseUrl?: string;
   apiKey?: string;
   apiKeyEnv?: string;
+  defaultModel?: string;
   model?: string;
+  getModelsUrl?: string;
   stream?: boolean;
 }
 
@@ -40,6 +42,7 @@ export type OpenaiLaunchTarget = {
   baseUrl: string;
   apiKey: string;
   model: string;
+  modelsUrl: string;
   stream: boolean;
 };
 
@@ -81,10 +84,16 @@ function optionalString(value: unknown): string | undefined {
   return trimmed === "" ? undefined : trimmed;
 }
 
+function hasOpenAiModel(entry: Record<string, unknown>): boolean {
+  return !!(
+    optionalString(entry.defaultModel) || optionalString(entry.model)
+  );
+}
+
 function agentType(entry: Record<string, unknown>): AgentType | null {
   if (entry.type === "openai") return "openai";
   if (entry.type === "acp" || entry.type === "command") return "acp";
-  if (optionalString(entry.baseUrl) && optionalString(entry.model)) return "openai";
+  if (optionalString(entry.baseUrl) && hasOpenAiModel(entry)) return "openai";
   if (optionalString(entry.command)) return "acp";
   return null;
 }
@@ -92,7 +101,7 @@ function agentType(entry: Record<string, unknown>): AgentType | null {
 function isUsableAgent(entry: Record<string, unknown>): boolean {
   const type = agentType(entry);
   if (type === "openai") {
-    return !!(optionalString(entry.baseUrl) && optionalString(entry.model));
+    return !!(optionalString(entry.baseUrl) && hasOpenAiModel(entry));
   }
   if (type === "acp") return !!optionalString(entry.command);
   return false;
@@ -136,7 +145,15 @@ function normalizeAgent(
   if (type === "acp" && agent.command) agent.command = agent.command.trim();
   if (type === "openai") {
     if (agent.baseUrl) agent.baseUrl = agent.baseUrl.trim().replace(/\/+$/, "");
-    if (agent.model) agent.model = agent.model.trim();
+    const defaultModel = optionalString(entry.defaultModel);
+    if (defaultModel) agent.defaultModel = defaultModel;
+    else delete agent.defaultModel;
+    const model = optionalString(entry.model);
+    if (model) agent.model = model;
+    else delete agent.model;
+    const getModelsUrl = optionalString(entry.getModelsUrl);
+    if (getModelsUrl) agent.getModelsUrl = getModelsUrl;
+    else delete agent.getModelsUrl;
   }
   return agent;
 }
@@ -268,14 +285,17 @@ export function toLaunchTarget(
   id: string,
   agent: Agent,
   env: NodeJS.Dict<string> = process.env,
+  model?: string,
 ): LaunchTarget {
   const type = agent.type ?? (agent.command ? "acp" : "openai");
   if (type === "openai") {
-    const baseUrl = optionalString(agent.baseUrl);
-    const model = optionalString(agent.model);
-    if (!baseUrl || !model) {
+    const baseUrl = optionalString(agent.baseUrl)?.replace(/\/+$/, "");
+    const configuredModel =
+      optionalString(agent.defaultModel) ?? optionalString(agent.model);
+    const effectiveModel = optionalString(model) ?? configuredModel;
+    if (!baseUrl || !effectiveModel) {
       throw new Error(
-        `API "${agent.name}" is missing baseUrl or model. Edit the agent config.`,
+        `API "${agent.name}" is missing baseUrl or defaultModel. Edit the agent config.`,
       );
     }
     const apiKey = resolveApiKey(agent, env);
@@ -290,7 +310,8 @@ export function toLaunchTarget(
       kind: "openai",
       baseUrl,
       apiKey,
-      model,
+      model: effectiveModel,
+      modelsUrl: optionalString(agent.getModelsUrl) ?? `${baseUrl}/models`,
       stream: agent.stream === true,
     };
   }

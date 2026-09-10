@@ -20,6 +20,7 @@ const options = {
     "src/util.ts",
     "src/agent-config.ts",
     "src/grep.ts",
+    "src/git-command.ts",
     "src/openai-client.ts",
     "src/project-uri.ts",
     "src/project-policy.ts",

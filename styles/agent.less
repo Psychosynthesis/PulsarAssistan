@@ -545,10 +545,11 @@
 }
 
 .pulsar-assistant-tool {
+  background: rgba(200, 200, 200, 0.05);
   border: 1px solid @pane-item-border-color;
   border-radius: @component-border-radius;
   padding: (@component-padding / 2);
-  margin-bottom: @component-padding;
+  margin-bottom: (@component-padding + 5px);
 
   .pulsar-assistant-tool-heading {
     display: flex;
@@ -577,23 +578,42 @@
 
   .pulsar-assistant-tool-body {
     margin-top: 4px;
+    padding: 0 (@component-padding / 2);
     white-space: pre-wrap;
     word-break: break-word;
     font-family: monospace;
     font-size: 0.9em;
     line-height: 1.5;
     color: @text-color-subtle;
-    // ponytail: ~12 lines (1.5 line-height); fixed em cap, no per-line measuring.
-    max-height: 18em;
+  }
+
+  .pulsar-assistant-tool-body--collapsed {
     overflow: hidden;
+  }
+
+  .pulsar-assistant-tool-body--collapsed-text {
+    max-height: 4.5em;
+  }
+
+  .pulsar-assistant-tool-body--collapsed-diff {
+    max-height: 30em;
   }
 
   .pulsar-assistant-tool-body--expanded {
     max-height: none;
   }
 
+  .pulsar-assistant-tool-summary {
+    padding: 0 (@component-padding / 2);
+    margin-top: 2px;
+    color: @text-color-subtle;
+    font-size: 0.82em;
+    font-style: italic;
+  }
+
   .pulsar-assistant-tool-toggle {
     margin-top: 4px;
+    margin-left: (@component-padding / 2);
     padding: 0;
     border: none;
     background: none;
@@ -1029,6 +1049,39 @@ atom-text-editor .line.pulsar-assistant-follow-flash {
   }
 }
 
+// Max tool turns per project: a compact number input in the actions row.
+.pulsar-assistant-turn-limit {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.82em;
+  color: @text-color-subtle;
+
+  label {
+    white-space: nowrap;
+  }
+
+  input {
+    width: 3.4em;
+    padding: 2px 4px;
+    font-family: inherit;
+    font-size: inherit;
+    color: @text-color;
+    background-color: @input-background-color;
+    border: 1px solid @input-border-color;
+    border-radius: @component-border-radius;
+
+    &:focus {
+      outline: none;
+      border-color: @text-color-info;
+    }
+
+    &:disabled {
+      opacity: 0.5;
+    }
+  }
+}
+
 // Staged editor-context attachments (active file / selection) shown as pills
 // above the input, and echoed metadata-only inside the sent user message.
 .pulsar-assistant-context-strip {
@@ -1260,6 +1313,10 @@ atom-text-editor .line.pulsar-assistant-follow-flash {
     }
 
     &[data-status="awaiting"] {
+      background-color: @text-color-warning;
+    }
+
+    &[data-status="warning"] {
       background-color: @text-color-warning;
     }
 

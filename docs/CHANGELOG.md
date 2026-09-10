@@ -5,8 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-09-10
 
-## [0.2.0] - Unreleased
+- API agents (`type: openai`) can list available models from the provider's
+  `/models` endpoint and switch the panel model from the header selector.
+- `model` is read as `defaultModel`; the new canonical name is `defaultModel`.
+- Optional `getModelsUrl` overrides `{baseUrl}/models` for providers that use a
+  different listing endpoint.
+- When the model list is unavailable, the agent status warns and the panel keeps
+  using the configured exact model.
+- Model descriptions from the listing are shown in the **More** panel.
+- Permission prompts gain **Allow for this session**, scoped to the current
+  conversation.
+- Tool output collapses to a short summary for large text output and diffs
+  longer than 20 lines.
+- Added a per-project **Tool turns** input to override the default
+  `max_turn_requests` limit.
+- Builtin `git` tool is always on (no `allowCommands`): status, diff, log,
+  show, branch, blame, rev-parse, ls-files, checkout, switch, add, commit.
+  Mutating operations ask for permission; push/pull/fetch, reset/rebase, and
+  force branch operations are rejected.
+- README examples added.
+
+## [0.2.0] - 2026-09-10
 
 - API agents (`type: openai`) are called in-process. Only spawned CLIs
   (`type: acp`) use ACP stdio. There is no fake in-process ACP pipe.

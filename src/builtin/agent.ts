@@ -29,8 +29,9 @@ function systemPrompt(cwd: string): string {
   return [
     "You are a coding agent inside the Pulsar editor, talking to an OpenAI-compatible API.",
     `The project working directory is ${cwd}. Stay inside it.`,
-    "Use read_file, write_file, grep, glob, and list_dir to inspect and change the project.",
+    "Use read_file, write_file, grep, glob, list_dir, and git to inspect and change the project.",
     "Prefer grep/glob/list_dir over running programs for search. grep is a JavaScript regex walk and works on Windows.",
+    "git is always available and does not need allowCommands. Use it for status, diff, branch, checkout -b, add, and commit.",
     "There is no terminal and no interactive shell. Do not try to open one.",
     "run_command is available only when the user set allowCommands: true for this project in Pulsar user config (config.cson), which is outside the project. You cannot enable it by editing files in the repo.",
     "run_tests is available only when the user set testCommand for this project in that same user config. It runs that exact command; you cannot change it or pass a different one.",
@@ -125,12 +126,19 @@ export class BuiltinAgent {
     this.sessions.get(params.sessionId)?.pending?.abort();
   }
 
+  private maxTurnRequests(): number {
+    const configured = this.getPolicy().maxTurnRequests;
+    if (configured == null) return MAX_TOOL_ITERATIONS;
+    return Math.max(1, Math.min(100, Math.trunc(configured)));
+  }
+
   private async runTurn(
     sessionId: string,
     session: SessionState,
     signal: AbortSignal,
   ): Promise<acp.PromptResponse> {
-    for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
+    const maxIterations = this.maxTurnRequests();
+    for (let i = 0; i < maxIterations; i++) {
       if (signal.aborted) return { stopReason: "cancelled" };
       const assistant: ChatMessage = { role: "assistant", content: "" };
       let toolCalls: ChatToolCall[] | null = null;
