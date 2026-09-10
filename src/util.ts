@@ -327,6 +327,7 @@ export function runCapturedProcess(options: {
   }
   env.PAGER = "";
   env.GIT_PAGER = "cat";
+  env.GIT_TERMINAL_PROMPT = "0";
 
   const child = spawn(options.command, options.args, {
     cwd: options.cwd,

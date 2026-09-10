@@ -2,6 +2,7 @@ import * as path from "path";
 import * as acp from "@agentclientprotocol/sdk";
 import { parseCommandLine, runCapturedProcess } from "../util";
 import { globFiles, grepFiles, listDirectory } from "../grep";
+import { planGitCommand } from "../git-command";
 import { resolveInsideRoot } from "../project-uri";
 import type { ProjectPolicy } from "../project-policy";
 import type { ChatTool } from "../openai-client";
@@ -87,15 +88,20 @@ export const TOOL_DEFINITIONS: ChatTool[] = [
     function: {
       name: "grep",
       description:
-        "Search file contents in the project with a JavaScript regular expression. Works on Windows, macOS, and Linux without a system grep.",
+        "Search file contents with a JavaScript regular expression (not a shell grep). pattern is the regex source only: use function not /function/ and not function(. Escape ( ) [ ] + * ? . if you want those characters literally. path is an existing directory or file; put *.ts in glob, not in path. Works on Windows without a system grep.",
       parameters: {
         type: "object",
         additionalProperties: false,
         properties: {
-          pattern: { type: "string" },
+          pattern: {
+            type: "string",
+            description:
+              "JavaScript regex source, e.g. function or export function. Do not wrap in /slashes/.",
+          },
           path: {
             type: "string",
-            description: "Directory or file to search, relative to the project root.",
+            description:
+              "Directory or file to search, relative to the project root. Not a glob.",
           },
           glob: {
             type: "string",
@@ -136,6 +142,26 @@ export const TOOL_DEFINITIONS: ChatTool[] = [
           path: { type: "string" },
         },
         required: ["path"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "git",
+      description:
+        "Run git in the project root. Always available; does not need allowCommands. Pass arguments after git, e.g. status, diff, branch, checkout -b topic, add -A, commit -m \"msg\". Not a shell. No push, pull, fetch, reset, rebase, or branch -d. checkout, switch, add, and commit ask for permission. commit needs -m.",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          command: {
+            type: "string",
+            description:
+              'Arguments after git, e.g. status or checkout -b topic. You may include a leading "git".',
+          },
+        },
+        required: ["command"],
       },
     },
   },
@@ -292,6 +318,17 @@ export function describeToolCall(
         needsPermission: false,
       };
     }
+    case "git": {
+      const plan = planGitCommand(
+        parseCommandLine(stringArg(args, "command") ?? ""),
+      );
+      return {
+        title: plan.title,
+        kind: plan.needsPermission ? "execute" : "read",
+        rawInput: { command: plan.args.join(" ") },
+        needsPermission: plan.needsPermission,
+      };
+    }
     default:
       throw new Error(`Unknown tool: ${name}`);
   }
@@ -348,6 +385,8 @@ export async function executeTool(
       return globTool(cwd, args);
     case "list_dir":
       return listDirTool(cwd, args);
+    case "git":
+      return gitTool(cwd, args, signal);
     default:
       throw new Error(`Unknown tool: ${name}`);
   }
@@ -506,4 +545,22 @@ async function listDirTool(
     entry.type === "directory" ? `${entry.name}/` : entry.name,
   );
   return { output: lines.join("\n") };
+}
+
+async function gitTool(
+  cwd: string,
+  args: Record<string, unknown>,
+  signal: AbortSignal,
+): Promise<ToolSuccess> {
+  const commandLine = stringArg(args, "command");
+  if (!commandLine) throw new Error("git requires a command string.");
+  const plan = planGitCommand(parseCommandLine(commandLine));
+  return formatProcessResult(
+    await runCapturedProcess({
+      command: "git",
+      args: plan.args,
+      cwd,
+      signal,
+    }),
+  );
 }

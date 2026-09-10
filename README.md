@@ -87,17 +87,24 @@ Legacy `type: "command"` is accepted and stored as `acp`.
 "pulsar-assistant":
   activeAgentId: "ours"
   agents:
-    ours:
-      name: "Our API"
+    deepseek:
+      apiKey: "YOUR_KEY"
+      baseUrl: "https://api.deepseek.com"
+      model: "deepseek-v4-pro"
+      name: "DeepSeek"
       type: "openai"
-      baseUrl: "https://api.example.com/v1"
-      model: "our-model"
-      apiKeyEnv: "OURS_API_KEY"
-      # stream: false   # set true later if the API grows SSE /chat/completions
-    copilot:
-      name: "GitHub Copilot"
-      type: "acp"
-      command: "copilot --acp --stdio"
+    openai:
+      apiKey: "YOUR_KEY"
+      baseUrl: "https://api.openai.com/v1"
+      model: "gpt-5.6-terra"
+      name: "OpenAI"
+      type: "openai"
+    yandex:
+      apiKey: "YOUR_KEY"
+      baseUrl: "https://ai.api.cloud.yandex.net/v1"
+      model: "gpt://b1gl8cdftb40gvn0nmtu/yandexgpt-5.1"
+      name: "YandexGPT"
+      type: "openai"
   projects:
     "/home/you/code/app":
       allowCommands: true

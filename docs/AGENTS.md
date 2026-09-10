@@ -11,7 +11,7 @@
 
 - `main.ts` — точка входа Pulsar: команды, opener, десериализатор, миграция реестра, status-bar. Какие панели открыты, не пишется в `config.cson`. Явный allowlist `projects` (allowCommands / testCommand) — да, в пользовательском конфиге, не в дереве проекта.
 - `session/agent-session.ts` — для `type: acp` JSON-RPC по stdio; для `type: openai` прямой `BuiltinAgent` без ACP-транспорта. Cwd инжектится; `atom.project` не читается. Нет `terminal/*`.
-- `builtin/` — OpenAI-совместимый агент (HTTP). `run_command` / `run_tests` только по политике проекта.
+- `builtin/` — OpenAI-совместимый агент (HTTP). `git` всегда; `run_command` / `run_tests` только по политике проекта.
 - `project-policy.ts` — разбор `pulsar-assistant.projects`.
 - `view/` — UI панели и glue для `atom.config`. Пикер группирует API и ACP.
 - `agent-config.ts` / `openai-client.ts` / `grep.ts` / `project-uri.ts` / `util.ts` — чистые модули для тестов. `type: command` читается как `acp`.
