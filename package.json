@@ -1,9 +1,14 @@
 {
   "name": "pulsar-assistant",
   "main": "./lib/main.js",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Coding agent for Pulsar",
-  "keywords": [ "acp", "agent", "ai", "assistant" ],
+  "keywords": [
+    "acp",
+    "agent",
+    "ai",
+    "assistant"
+  ],
   "license": "MIT",
   "engines": {
     "atom": ">=1.130.0"
@@ -13,7 +18,13 @@
     "url": "https://github.com/Psychosynthesis/PulsarAssistan.git"
   },
   "homepage": "https://github.com/Psychosynthesis/PulsarAssistan#readme",
-  "files": [ "docs", "lib", "menus", "styles", "README.md" ],
+  "files": [
+    "docs",
+    "lib",
+    "menus",
+    "styles",
+    "README.md"
+  ],
   "activationCommands": {
     "atom-workspace": [
       "pulsar-assistant:open-for-project",
