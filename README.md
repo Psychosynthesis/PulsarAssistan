@@ -17,6 +17,12 @@ Highlights:
 
 - Open a separate ACP panel per project folder. ACP stays off until you open it for that project.
 - Talk to an OpenAI-compatible API from inside Pulsar, or spawn a local ACP CLI such as `Copilot CLI / Vibe`.
+- Seamless on-the-fly model switching for OpenAI-compatible agents without resetting context or clearing chat history.
+- Real-time token context usage indicator and capacity progress bar with color-coded warning thresholds.
+- Compact conversation context action to reclaim model window capacity by summarizing completed tool outputs.
+- Dedicated Projects & Storage management modal to review and delete cached sessions, disk usage, and B-tree indexes.
+- Persistent session storage on disk with message history, tool execution results, and metadata.
+- Balanced B-tree file indexing (`tree.json`) with debounced updates for instant project hierarchy context.
 - Attach the current file or selection to prompts.
 - Review permission prompts, tool output, diffs, plans, and session history inline.
 - Configure and switch between APIs from the panel header.
@@ -34,6 +40,9 @@ fallback. Currently tested with GitHub Copilot CLI and Mistral Vibe.
   - [Project commands and tests](#project-commands-and-tests)
   - [Example: Copilot CLI](#example-copilot-cli)
   - [Selecting an agent and model](#selecting-an-agent-and-model)
+  - [Model context window and token usage](#model-context-window-and-token-usage)
+  - [Compacting conversation context](#compacting-conversation-context)
+  - [Managing projects & storage](#managing-projects--storage)
 - [Develop](#develop)
 - [Architecture](#architecture)
 - [Testing](#testing)
@@ -66,91 +75,77 @@ Command and test policy is a separate opt-in map you write yourself — see
 [Project commands and tests](#project-commands-and-tests). It lives in user
 config, not in the repo.
 
-If several folders are open and no file is focused, open a file in the project
-or right-click one in the tree view.
-
 ## Configure APIs and agents
 
-Each entry in `agents` is one of two kinds. Put `type` on every agent so the
-split is visible in `config.cson` and in the header picker:
+Open your Pulsar configuration file:
 
-| `type` | How it runs |
-| --- | --- |
-| `openai` | HTTP to an OpenAI-compatible `/chat/completions`. In-process. No ACP stdio. |
-| `acp` | Spawn a local CLI (`command`) and speak Agent Client Protocol over real stdio. |
+- Command palette: **Application: Open Your Config**
+- Or run **Pulsar Assistant: Edit Agents**
 
-Legacy `type: "command"` is accepted and stored as `acp`.
+Pulsar Assistant stores agents under `pulsar-assistant.agents`:
+
+```cson
+"*":
+  "pulsar-assistant":
+    agents:
+      openai:
+        type: "openai"
+        name: "OpenAI API"
+        baseUrl: "https://api.openai.com/v1"
+        apiKey: "YOUR_OPENAI_API_KEY"
+        defaultModel: "gpt-4o"
+      openrouter:
+        type: "openai"
+        name: "OpenRouter"
+        baseUrl: "https://openrouter.ai/api/v1"
+        apiKey: "YOUR_OPENROUTER_KEY"
+        defaultModel: "anthropic/claude-3.5-sonnet"
+```
 
 ### Example: OpenAI-compatible API
 
-```cson
-"pulsar-assistant":
-  activeAgentId: "ours"
-  agents:
-    deepseek:
-      apiKey: "YOUR_KEY"
-      baseUrl: "https://api.deepseek.com"
-      defaultModel: "deepseek-v4-pro"
-      name: "DeepSeek"
-      type: "openai"
-    openai:
-      apiKey: "YOUR_KEY"
-      baseUrl: "https://api.openai.com/v1"
-      defaultModel: "gpt-5.6-terra"
-      name: "OpenAI"
-      type: "openai"
-    yandex:
-      apiKey: "YOUR_KEY"
-      baseUrl: "https://ai.api.cloud.yandex.net/v1"
-      defaultModel: "gpt://b1gl8cdftb40gvn0nmtu/yandexgpt-5.1"
-      name: "YandexGPT"
-      type: "openai"
-  projects:
-    "/home/you/code/app":
-      allowCommands: true
-      testCommand: "npm test"
-      maxTurnRequests: 20
-  version: 1
-```
+The builtin agent implements the tool loop locally and sends standard OpenAI
+chat completion requests with tool definitions. Any provider that supports
+tool calling works out of the box:
 
-`activeAgentId` is only the default for a *newly opened* panel. It is not a map
-of projects. Each panel remembers its own selection on the dock item.
+- OpenAI
+- OpenRouter
+- DeepSeek
+- Groq
+- Ollama / LM Studio / LocalAI / vLLM
 
-For `type: "openai"`, `defaultModel` is the default model for a newly opened
-panel. The `model` field is read the same way. The optional `getModelsUrl`
-overrides the standard `{baseUrl}/models` endpoint when a provider serves its
-model list elsewhere. If the model list cannot be fetched, the panel asks you to
-configure the exact model and continues with `defaultModel`.
+Required fields:
 
-Builtin tools: `read_file`, `write_file`, `grep`, `glob`, `list_dir`, `git`.
-`run_command` and `run_tests` are off unless you opt in per folder (below).
-`grep` is a JavaScript walk (works on Windows; no system grep). `git` is
-always available without `allowCommands`, but only for a fixed allowlist of
-subcommands; write operations ask for permission.
+- `type`: `"openai"`
+- `name`: display name in the picker
+- `baseUrl`: base URL without trailing slash (e.g. `https://api.openai.com/v1`)
+- `apiKey`: your secret key (can be any string or empty for local engines)
+- `defaultModel`: model identifier to use on initial panel open
 
-Image attachments are not supported and are not planned.
+Optional fields:
+
+- `modelsUrl`: override endpoint for fetching models (defaults to `{baseUrl}/models`)
+- `systemPrompt`: custom system instructions prepended to every conversation turn
 
 ### Project commands and tests
 
-Arbitrary commands and tests are **off** by default. This client has no ACP
-terminal. To allow process execution for one folder, add that folder to
-`pulsar-assistant.projects` in Pulsar **user** config (`Edit Agents` /
-`config.cson`). Do not put this in the project directory — a malicious agent
-could rewrite a file in the repo.
+By default, the builtin agent has no terminal access. To allow `run_command` or
+`run_tests` for a specific project, declare policies in `config.cson`:
 
 ```cson
-"pulsar-assistant":
-  projects:
-    "/absolute/path/to/the/project":
-      allowCommands: true        # optional; omit or false = no run_command
-      testCommand: "npm test"    # optional; omit = no run_tests
-      maxTurnRequests: 20        # optional; maximum tool calls in one turn
+"*":
+  "pulsar-assistant":
+    projects:
+      "/path/to/my/project":
+        allowCommands: true      # enables run_command
+        testCommand: "npm test"  # exact test command run by run_tests
+        maxTurnRequests: 200     # optional; maximum tool calls in one turn (default: 200, max: 1000)
 ```
 
 `allowCommands` is a boolean. `testCommand` is the exact command line
 (`run_tests` cannot change it). `maxTurnRequests` is a positive integer
-overriding the default maximum number of tool calls in one turn. Keys are
-absolute project roots. The **Tool turns** input in the panel edits
+(up to 1000) overriding the default maximum number of tool calls in one turn (200).
+Keys are absolute project roots. The **Tool turns** input in the panel edits
 `maxTurnRequests` for the current project.
 
 Spawned ACP CLIs still run as their own process and can execute commands without
@@ -180,8 +175,8 @@ for the connected agent's live runtime info.
 
 For API agents, a model selector sits next to the agent picker. It lists the
 models reported by the provider's `/models` endpoint and keeps the selected
-model on the dock item for this panel. Choosing a model restarts the agent with
-that model.
+model on the dock item for this panel. Choosing a different model switches the model
+dynamically on the fly for subsequent requests without resetting the session or clearing conversation history.
 
 ![Agent picker menu in the panel header](docs/images/agent-picker.png)
 
@@ -207,6 +202,31 @@ By default, Pulsar Assistant also sends a short host-context hint once per
 session so a spawned ACP agent knows the conversation is happening through Pulsar, while also making clear that the agent cannot directly control Pulsar's UI.
 Disable **Send host context** in package settings if you do not want this extra context included in prompts. API agents get the same idea from their system prompt instead.
 
+### Model context window and token usage
+
+For OpenAI-compatible agents, the header displays a live token usage progress bar right next to the model selector. It calculates the cumulative token count of the system prompt, conversation history, tool calls, and your uncommitted draft input using an offline weighted heuristic (~3.7 chars/token for ASCII code, ~1.5 chars/token for Cyrillic/Unicode).
+
+Context limits are resolved in order of priority:
+1. Custom overrides from `pulsar-assistant.modelContextWindows` in `config.cson`.
+2. Metadata returned by the provider's `/models` endpoint (e.g. `context_length`).
+3. Built-in defaults for known families (Gemini: 1M, Claude: 200k, GPT-4o / DeepSeek / Qwen: 128k, etc.).
+4. Fallback: 128k tokens.
+
+The bar turns yellow above 70% and red above 90%.
+
+### Compacting conversation context
+
+To save tokens on long multi-turn conversations, click the **Compact conversation context** button (`icon-fold`) in the header right controls. This replaces bulky historical outputs from previous tool invocations (`read_file`, `list_dir`, `glob`, `git`, etc.) with compact summaries, immediately reducing context window consumption for follow-up prompts.
+
+### Managing projects & storage
+
+Open the modal via **Packages → Pulsar Assistant → Manage Projects & Storage**, through the command palette (`pulsar-assistant:manage-projects`), or from the agent dropdown menu ("Manage projects & storage…").
+
+The modal allows you to:
+- Review and verify effective model context limits.
+- Inspect cached sessions, disk size, and B-tree file indexes per project.
+- Delete project history and cached data from disk with confirmation.
+
 ## Develop
 
 ```sh
@@ -226,9 +246,18 @@ Pulsar loads `lib/main.js`. Rebuild after editing `src/`, then reload Pulsar.
 - `src/main.ts` registers commands, opener, dock item, deserializer, and
   status-bar service consumer. It never stores project paths in `config.cson`.
 - `src/view/` renders the panel UI (`PulsarAssistantView` plus split helpers).
-- `src/session/agent-session.ts` is the ACP client: in-process builtin agent or
-  a spawned CLI, with cwd injected by the view.
+- `src/view/context-progress-bar.ts` renders the real-time context capacity bar and tooltips.
+- `src/view/projects-storage-modal.ts` implements the projects and disk storage management dialog.
+- `src/editor/` provides the `EditorBackend` abstraction (`PulsarEditorBackend`) isolating editor buffers, containment checks, and file watchers from the rest of the application.
+- `src/session/agent-session.ts` is the unified facade managing session lifecycle and routing calls to drivers.
+- `src/session/backends/` implements agent drivers (`AgentBackend`):
+  - `BuiltinBackend`: in-process OpenAI-compatible HTTP agent.
+  - `AcpCliBackend`: spawned ACP CLI processes communicating over JSON-RPC stdio.
+- `src/session/file-tree-manager.ts` coordinates B-tree project file indexing, debouncing, and disk persistence (`tree.json`).
 - `src/builtin/` is the OpenAI-compatible ACP agent (tools + HTTP client).
+- `src/session-storage.ts` manages disk persistence for project sessions and message histories under `${configDir}/storage/pulsar-assistant/projects/${projectName}-${projectHash}/`.
+- `src/file-btree.ts` provides balanced B-Tree (`BTree`, `ProjectFileTree`) project file indexing with debounced disk persistence (`tree.json`) and compressed hierarchy context for models.
+- `src/token-estimate.ts` computes fast weighted token estimates and resolves model context limits.
 - `src/agent-config.ts` holds the pure API/agent-registry logic.
 - `src/project-policy.ts` reads `pulsar-assistant.projects` (user config only).
 - `src/util.ts`, `src/grep.ts`, `src/project-uri.ts`, `src/openai-client.ts`
@@ -262,30 +291,3 @@ Beyond ACP, this package also adds:
 
 The builtin OpenAI-compatible agent runs in the Pulsar process. Spawned ACP
 CLIs still run as a separate command-line process with your user account.
-Pulsar does not sandbox either path.
-
-The limits below only constrain tool and ACP requests that go through this
-package. They do not restrict what a spawned agent does in its own process:
-
-- `read_file` / `fs/read_text_file` and `write_file` / `fs/write_text_file` are
-  served only when the target path resolves inside that panel's project folder.
-- Builtin `grep`, `glob`, and `list_dir` walk that same folder and refuse paths
-  that resolve outside it.
-- Writes to open files with unsaved changes are refused.
-- There is no ACP terminal. Builtin `run_command` runs only when
-  `allowCommands` is true for that folder in Pulsar user config (outside the
-  repo). `run_tests` runs only the configured `testCommand`. Both use
-  `cross-spawn` without a shell. Stop cancels the turn.
-- Builtin `git` runs in the project root without a shell and does not require
-  `allowCommands`. It allows only status, diff, log, show, branch, blame,
-  rev-parse, ls-files, checkout, switch, add, and commit. Checkout, switch, add,
-  commit, and mutating branch operations (create, rename, delete) ask for
-  permission; push/pull/fetch, reset/rebase, and force branch operations are
-  rejected.
-- `maxTurnRequests` limits the number of tool calls in one turn when set in
-  `pulsar-assistant.projects`.
-
-These are guard rails for a cooperating builtin agent, not a security boundary
-for spawned CLIs. A spawned ACP agent can still run commands in its own process.
-Use Pulsar Assistant only with APIs and spawned agents you trust; for stronger
-isolation, run it inside a container or VM.

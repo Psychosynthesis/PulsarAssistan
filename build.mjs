@@ -24,6 +24,10 @@ const options = {
     "src/openai-client.ts",
     "src/project-uri.ts",
     "src/project-policy.ts",
+    "src/session-storage.ts",
+    "src/file-btree.ts",
+    "src/token-estimate.ts",
+    "src/editor/editor-backend.ts",
   ],
   outdir: "lib",
   bundle: true,
@@ -33,7 +37,7 @@ const options = {
   sourcemap: true,
   external: ["atom", "electron"],
   define: {
-    __PULSAR_ACP_AGENT_VERSION__: JSON.stringify(pkg.version),
+    __PULSAR_ASSISTANT_VERSION__: JSON.stringify(pkg.version),
   },
   logLevel: "info",
 };

@@ -21,6 +21,10 @@
             'label': 'Edit Agents'
             'command': 'pulsar-assistant:edit-agents'
           }
+          {
+            'label': 'Manage Projects & Storage'
+            'command': 'pulsar-assistant:manage-projects'
+          }
         ]
       }
     ]

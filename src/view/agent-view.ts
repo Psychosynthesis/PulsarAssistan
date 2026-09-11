@@ -34,6 +34,8 @@ import {
 import { ConfigSelector, SelectConfigOption } from "./config-selector";
 import { renderMarkdown as renderMarkdownHtml } from "./markdown";
 import { ModelSelector } from "./model-selector";
+import { ContextProgressBar } from "./context-progress-bar";
+import { estimateSessionTokens, resolveContextWindow } from "../token-estimate";
 import { fetchOpenAiModels, OpenAiModelInfo } from "../openai-client";
 import { projectFolderName, uriForProject } from "../project-uri";
 
@@ -156,6 +158,8 @@ export class PulsarAssistantView {
   private activeTarget: LaunchTarget | null = null;
   private infoButton!: HTMLButtonElement;
   private restartButton!: HTMLButtonElement;
+  private contextProgressBar!: ContextProgressBar;
+  private compactButton!: HTMLButtonElement;
   private infoPanel!: HTMLElement;
   private infoPanelOpen = false;
   private storedAgentInfo: acp.Implementation | null = null;
@@ -339,6 +343,7 @@ export class PulsarAssistantView {
     if (target?.kind !== "openai") {
       this.modelSelector.closeMenu();
       this.modelSelectorWrap.style.display = "none";
+      this.updateContextProgress();
       return;
     }
     this.modelSelectorWrap.style.display = "";
@@ -347,6 +352,7 @@ export class PulsarAssistantView {
       this.modelList,
       this.modelsLoading,
     );
+    this.updateContextProgress();
   }
 
   private modelSelectorDisabled(): boolean {
@@ -364,6 +370,7 @@ export class PulsarAssistantView {
     if (this.modelSelectorDisabled()) return;
     const target = this.activeTarget;
     if (!target || target.kind !== "openai") return;
+    if (target.model === id) return;
     const agent = this.agentsConfig.agents[target.id];
     if (!agent) return;
     let next: LaunchTarget;
@@ -373,7 +380,15 @@ export class PulsarAssistantView {
       this.appendError(error instanceof Error ? error.message : String(error));
       return;
     }
-    this.performSwitch(next);
+    this.selectedModelId = id;
+    this.activeTarget = next;
+    this.session.setModel(id);
+    this.renderModelSelector();
+    this.updateContextProgress();
+    if (this.infoPanelOpen) this.renderInfoPanel();
+    if (this.conversation.childElementCount > 0) {
+      this.appendNote(`Model switched to ${id}`);
+    }
   }
 
   private async fetchModelsForTarget(
@@ -401,6 +416,7 @@ export class PulsarAssistantView {
       this.modelsLoading = false;
       this.modelWarning = false;
       this.renderModelSelector();
+      this.updateContextProgress();
       if (this.infoPanelOpen) this.renderInfoPanel();
     } catch (error) {
       if (generation !== this.modelFetchGeneration || controller.signal.aborted) {
@@ -541,6 +557,9 @@ export class PulsarAssistantView {
     this.modelSelectorWrap.appendChild(this.modelSelector.element);
     row1.appendChild(this.modelSelectorWrap);
 
+    this.contextProgressBar = new ContextProgressBar();
+    row1.appendChild(this.contextProgressBar.element);
+
     const onModelDocClick = (event: MouseEvent) => {
       if (
         this.modelSelector?.isOpen &&
@@ -567,6 +586,23 @@ export class PulsarAssistantView {
         document.removeEventListener("keydown", onModelKeyDown),
       ),
     );
+
+    this.compactButton = document.createElement("button");
+    this.compactButton.classList.add(
+      "pulsar-assistant-compact-context",
+      "icon",
+      "icon-fold",
+    );
+    this.compactButton.setAttribute("aria-label", "Compact context");
+    this.compactButton.style.display = "none";
+    this.subscriptions.add(
+      atom.tooltips.add(this.compactButton, {
+        title: "Compact conversation context",
+      }),
+    );
+    this.compactButton.addEventListener("click", () => {
+      void this.compactContext();
+    });
 
     this.sessionsToggle = document.createElement("button");
     this.sessionsToggle.classList.add(
@@ -624,6 +660,7 @@ export class PulsarAssistantView {
 
     const rightGroup = document.createElement("div");
     rightGroup.classList.add("pulsar-assistant-header-right");
+    rightGroup.appendChild(this.compactButton);
     rightGroup.appendChild(this.sessionsToggle);
     rightGroup.appendChild(this.newSessionButton);
 
@@ -682,7 +719,10 @@ export class PulsarAssistantView {
         this.send();
       }
     });
-    this.input.addEventListener("input", () => this.updateSlashMenu());
+    this.input.addEventListener("input", () => {
+      this.updateSlashMenu();
+      this.updateContextProgress();
+    });
 
     const actions = document.createElement("div");
     actions.classList.add("pulsar-assistant-actions");
@@ -831,9 +871,9 @@ export class PulsarAssistantView {
     this.maxTurnRequestsInput.id = "pulsar-assistant-turn-limit-input";
     this.maxTurnRequestsInput.type = "number";
     this.maxTurnRequestsInput.min = "1";
-    this.maxTurnRequestsInput.max = "100";
+    this.maxTurnRequestsInput.max = "1000";
     this.maxTurnRequestsInput.step = "1";
-    this.maxTurnRequestsInput.placeholder = "20";
+    this.maxTurnRequestsInput.placeholder = "200";
     this.maxTurnRequestsInput.addEventListener("change", () => {
       this.saveTurnLimit();
     });
@@ -841,7 +881,7 @@ export class PulsarAssistantView {
     this.subscriptions.add(
       atom.tooltips.add(wrap, {
         title:
-          "Maximum tool calls in one turn for this project. Empty uses the default (20).",
+          "Maximum tool calls in one turn for this project. Empty uses the default (200).",
         placement: "top",
         trigger: "hover",
       }),
@@ -867,9 +907,9 @@ export class PulsarAssistantView {
       return;
     }
     const value = Number(raw);
-    if (!Number.isInteger(value) || value < 1 || value > 100) {
+    if (!Number.isInteger(value) || value < 1 || value > 1000) {
       this.refreshTurnLimitInput();
-      this.appendError("Tool turns must be a whole number from 1 to 100.");
+      this.appendError("Tool turns must be a whole number from 1 to 1000.");
       return;
     }
     setProjectMaxTurnRequests(this.projectRoot, value);
@@ -1495,6 +1535,7 @@ export class PulsarAssistantView {
 
     if (text.length === 0 && context.length === 0) return;
     this.input.value = "";
+    this.updateContextProgress();
     this.appendUserMessage(text, context);
     this.endStreamingBlocks();
     // Track that we expect an echo from the agent
@@ -1625,6 +1666,7 @@ export class PulsarAssistantView {
     this.renderAgentPicker();
     this.renderModelSelector();
     this.refreshTurnLimitInput();
+    this.updateContextProgress();
   }
 
   // Called once after activate() seeds/migrates config. Picks up the migrated
@@ -1711,6 +1753,19 @@ export class PulsarAssistantView {
       atom.commands.dispatch(this.element, "pulsar-assistant:edit-agents");
     });
     this.agentMenu.appendChild(edit);
+
+    const manageProjects = document.createElement("button");
+    manageProjects.classList.add(
+      "pulsar-assistant-picker-item",
+      "pulsar-assistant-picker-edit",
+    );
+    manageProjects.setAttribute("role", "menuitem");
+    manageProjects.textContent = "Manage projects & storage\u2026";
+    manageProjects.addEventListener("click", () => {
+      this.closeAgentMenu();
+      atom.commands.dispatch(this.element, "pulsar-assistant:manage-projects");
+    });
+    this.agentMenu.appendChild(manageProjects);
   }
 
   private agentMenuItems(): HTMLButtonElement[] {
@@ -1885,6 +1940,7 @@ export class PulsarAssistantView {
       if (cached !== undefined) this.swapInConversation(cached);
       this.restorePlanStateFor(id);
       this.session.activateCachedSession(id);
+      this.updateContextProgress();
       return;
     }
 
@@ -2020,6 +2076,7 @@ export class PulsarAssistantView {
         this.newSessionButton.style.display = "";
         this.updateSessionControls();
         this.updateInputControls();
+        this.updateContextProgress();
         break;
       case "session-list":
         this.renderSessionsList(event.sessions);
@@ -2045,6 +2102,7 @@ export class PulsarAssistantView {
           this.appendNote(`Turn stopped: ${event.stopReason}`);
         }
         this.session.refreshSessionList();
+        this.updateContextProgress();
         break;
       case "update":
         this.handleUpdate(event.sessionId, event.update);
@@ -2691,7 +2749,7 @@ export class PulsarAssistantView {
     const message = document.createElement("div");
     message.classList.add(
       "pulsar-assistant-message",
-      "pulsar-assistant-message--error",
+      `pulsar-assistant-message--error`,
     );
     message.textContent = text;
     this.conversation.appendChild(message);
@@ -3677,6 +3735,62 @@ export class PulsarAssistantView {
     this.conversation.scrollTop = this.conversation.scrollHeight;
   }
 
+  private updateContextProgress(): void {
+    if (!this.contextProgressBar) return;
+    if (this.activeTarget?.kind !== "openai") {
+      this.contextProgressBar.setVisible(false);
+      if (this.compactButton) this.compactButton.style.display = "none";
+      return;
+    }
+
+    this.contextProgressBar.setVisible(true);
+    if (this.compactButton) this.compactButton.style.display = "";
+
+    const sessionId = this.session.sessionId;
+    const messages = sessionId
+      ? this.session.getSessionMessages(sessionId)
+      : [];
+    const draftText = this.input ? this.input.value : "";
+    const usedTokens = estimateSessionTokens(messages, draftText);
+
+    const modelId =
+      this.selectedModelId ||
+      (this.activeTarget as OpenaiLaunchTarget).model ||
+      "";
+    const customWindows = atom.config.get(
+      "pulsar-assistant.modelContextWindows",
+    ) as Record<string, number> | undefined;
+
+    const matchedMeta = this.modelList?.find((m) => m.id === modelId) as
+      | Record<string, unknown>
+      | undefined;
+
+    const maxTokens = resolveContextWindow(modelId, customWindows, matchedMeta);
+    this.contextProgressBar.update(usedTokens, maxTokens);
+  }
+
+  private async compactContext(): Promise<void> {
+    const sessionId = this.session.sessionId;
+    if (!sessionId) return;
+    try {
+      const result = await this.session.compactContext(sessionId);
+      if (result.compactedCount > 0) {
+        atom.notifications.addSuccess("Pulsar Assistant", {
+          description: `Compacted ${result.compactedCount} tool result${result.compactedCount === 1 ? "" : "s"} in conversation context.`,
+        });
+      } else {
+        atom.notifications.addInfo("Pulsar Assistant", {
+          description: "No tool results to compact in the current context.",
+        });
+      }
+      this.updateContextProgress();
+    } catch (err) {
+      atom.notifications.addError("Pulsar Assistant", {
+        description: `Failed to compact context: ${err instanceof Error ? err.message : String(err)}`,
+      });
+    }
+  }
+
   getTitle(): string {
     return `Pulsar Assistant | ${projectFolderName(this.projectRoot)}`;
   }
@@ -3719,6 +3833,10 @@ export class PulsarAssistantView {
     };
   }
 
+  focusComposer(): void {
+    this.input?.focus();
+  }
+
   destroy(): void {
     this.disconnectStartObserver();
     this.clearFollowEffects();
@@ -3738,6 +3856,7 @@ export class PulsarAssistantView {
     this.configSelectors = [];
     this.subscriptions.dispose();
     this.session.dispose();
+    this.contextProgressBar?.destroy();
     if (this.element) this.element.remove();
   }
 }

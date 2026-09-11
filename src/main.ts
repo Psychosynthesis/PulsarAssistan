@@ -2,6 +2,7 @@ import { CommandEvent, CompositeDisposable, Disposable, TextEditor } from "atom"
 import type { StatusBar } from "atom/status-bar";
 import { PulsarAssistantView } from "./view/agent-view";
 import { migrateAgentsConfigStore } from "./view/config-store";
+import { ProjectsStorageModal } from "./view/projects-storage-modal";
 import { StatusIndicator } from "./view/status-indicator";
 import { attachTrafficSummary } from "./view/traffic-summary";
 import {
@@ -68,51 +69,49 @@ function pathFromCommandEvent(event?: CommandEvent): string | undefined {
         : candidate instanceof Node
           ? candidate.parentElement
           : null;
-    const node = start?.closest("[data-path]");
-    const filePath = node?.getAttribute("data-path");
-    if (filePath) return filePath;
+    const fromDom = start?.closest?.("[data-path]")?.getAttribute("data-path");
+    if (fromDom) return fromDom;
   }
   return undefined;
 }
 
-function notifyNoProject(): void {
-  atom.notifications.addWarning("Pulsar Assistant", {
-    description:
-      "Open a file, or right-click a file in the tree view, that belongs to a project folder.",
-  });
-}
-
 async function openProjectPanel(
   projectRoot: string,
-  options: { searchAllPanes?: boolean; activate?: boolean } = {},
-): Promise<PulsarAssistantView | null> {
-  const item = await atom.workspace.open(uriForProject(projectRoot), {
-    searchAllPanes: options.searchAllPanes !== false,
-    activatePane: options.activate !== false,
-    activateItem: options.activate !== false,
-  });
-  return item instanceof PulsarAssistantView ? item : null;
+): Promise<PulsarAssistantView | undefined> {
+  const uri = uriForProject(projectRoot);
+  const item = await atom.workspace.open(uri, { searchAllPanes: true });
+  return item instanceof PulsarAssistantView ? item : undefined;
 }
 
-async function openForCurrentProject(opts: {
-  toggle?: boolean;
+async function openForCurrentProject(options: {
   focus?: boolean;
-  filePath?: string | null;
+  toggle?: boolean;
+  filePath?: string;
 }): Promise<void> {
-  const filePath =
-    opts.filePath ||
-    atom.workspace.getCenter().getActiveTextEditor()?.getPath();
-  const root = resolveCurrentProjectRoot(filePath);
+  const root = resolveCurrentProjectRoot(options.filePath);
   if (!root) {
-    notifyNoProject();
+    atom.notifications.addWarning("Pulsar Assistant", {
+      description:
+        "No project folder is open. Open a folder first to use Pulsar Assistant.",
+    });
     return;
   }
+
   const uri = uriForProject(root);
-  if (opts.toggle) {
-    await atom.workspace.toggle(uri);
-    return;
+  const pane = atom.workspace.paneForURI(uri);
+  const existingItem = pane?.itemForURI(uri);
+
+  if (options.toggle && existingItem && pane) {
+    if (pane.getActiveItem() === existingItem) {
+      pane.destroyItem(existingItem);
+      return;
+    }
   }
-  await openProjectPanel(root);
+
+  const view = await openProjectPanel(root);
+  if (options.focus && view) {
+    view.focusComposer();
+  }
 }
 
 async function addEditorContext(
@@ -187,6 +186,12 @@ export function activate(): void {
       "pulsar-assistant:edit-agents": {
         displayName: "Pulsar Assistant: Edit Agents",
         didDispatch: () => atom.workspace.open(atom.config.getUserConfigPath()),
+      },
+      "pulsar-assistant:manage-projects": {
+        displayName: "Pulsar Assistant: Manage Projects & Storage",
+        didDispatch: () => {
+          ProjectsStorageModal.show();
+        },
       },
     }),
     atom.commands.add(".pulsar-assistant", {

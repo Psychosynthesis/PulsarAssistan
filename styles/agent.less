@@ -274,6 +274,50 @@
   margin-right: auto;
 }
 
+.pulsar-assistant-context-progress {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.82em;
+  color: @text-color-subtle;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.pulsar-assistant-context-track {
+  width: 120px;
+  height: 8px;
+  background-color: @input-background-color;
+  border: 1px solid @input-border-color;
+  border-radius: 4px;
+  overflow: hidden;
+  position: relative;
+}
+
+.pulsar-assistant-context-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 3px;
+  transition: none !important;
+
+  &.pulsar-assistant-context-fill-normal {
+    background-color: @background-color-info;
+  }
+
+  &.pulsar-assistant-context-fill-warning {
+    background-color: @background-color-warning;
+  }
+
+  &.pulsar-assistant-context-fill-error {
+    background-color: @background-color-error;
+  }
+}
+
+.pulsar-assistant-context-label {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .pulsar-assistant-info-panel {
   border-bottom: 1px solid @pane-item-border-color;
   padding: (@component-padding * 0.75) @component-padding;
@@ -697,7 +741,6 @@
   .pulsar-assistant-plan-bar-twisty {
     flex-shrink: 0;
     color: @text-color-subtle;
-
     &::before {
       margin: 0;
     }
@@ -871,6 +914,7 @@
 
   .pulsar-assistant-input {
     width: 100%;
+    min-height: 150px;
     resize: vertical;
     padding: (@component-padding / 2);
     font-family: inherit;
@@ -1112,7 +1156,6 @@ atom-text-editor .line.pulsar-assistant-follow-flash {
 
   .icon::before {
     margin-right: 0;
-    font-size: 12px;
   }
 
   .pulsar-assistant-context-label {
@@ -1139,7 +1182,8 @@ atom-text-editor .line.pulsar-assistant-follow-flash {
 }
 
 .pulsar-assistant-sessions-toggle,
-.pulsar-assistant-new-session {
+.pulsar-assistant-new-session,
+.pulsar-assistant-compact-context {
   flex-shrink: 0;
   padding: 2px 4px;
   background: none;
@@ -1333,4 +1377,111 @@ atom-text-editor .line.pulsar-assistant-follow-flash {
   white-space: normal;
   max-width: 240px;
   word-break: break-word;
+}
+
+// Projects & Storage modal overlay
+.pulsar-assistant-projects-modal {
+  padding: @component-padding;
+  max-width: 780px;
+  width: 100%;
+  max-height: 85vh;
+  overflow-y: auto;
+  box-sizing: border-box;
+
+  .pulsar-assistant-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: @component-padding;
+    border-bottom: 1px solid @pane-item-border-color;
+    padding-bottom: (@component-padding / 2);
+  }
+
+  .pulsar-assistant-modal-title {
+    margin: 0;
+    font-size: 1.25em;
+    font-weight: 600;
+  }
+
+  .pulsar-assistant-modal-close {
+    padding: 2px 8px;
+  }
+
+  .pulsar-assistant-modal-section {
+    margin-bottom: (@component-padding * 1.5);
+
+    h3 {
+      margin-top: 0;
+      margin-bottom: (@component-padding / 4);
+      font-size: 1.05em;
+    }
+
+    p {
+      margin-top: 0;
+      margin-bottom: (@component-padding / 2);
+    }
+  }
+
+  .pulsar-assistant-section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: (@component-padding / 4);
+  }
+
+  .pulsar-assistant-table-scroll {
+    max-height: 220px;
+    overflow-y: auto;
+    border: 1px solid @pane-item-border-color;
+    border-radius: @component-border-radius;
+  }
+
+  .pulsar-assistant-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9em;
+
+    th, td {
+      padding: (@component-padding / 3) (@component-padding / 2);
+      text-align: left;
+      border-bottom: 1px solid fade(@pane-item-border-color, 50%);
+    }
+
+    th {
+      position: sticky;
+      top: 0;
+      background-color: @tool-panel-background-color;
+      font-weight: 600;
+      z-index: 1;
+    }
+
+    tr:last-child td {
+      border-bottom: none;
+    }
+
+    tbody tr:hover {
+      background-color: @background-color-highlight;
+    }
+  }
+
+  .pulsar-assistant-table-custom-row td {
+    background-color: fade(@text-color-info, 8%);
+  }
+
+  .pulsar-assistant-project-path {
+    max-width: 260px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: monospace;
+    font-size: 0.85em;
+  }
+
+  .pulsar-assistant-empty-state {
+    padding: @component-padding;
+    text-align: center;
+    color: @text-color-subtle;
+    border: 1px dashed @pane-item-border-color;
+    border-radius: @component-border-radius;
+  }
 }

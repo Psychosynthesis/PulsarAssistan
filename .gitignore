@@ -1,4 +1,6 @@
 node_modules/
 *.tsbuildinfo
+*.diff
+*.patch
 
 # Do NOT ignore lib/. for keep the built bundle (lib/) committed.

@@ -1,9 +1,9 @@
 {
   "name": "pulsar-assistant",
   "main": "./lib/main.js",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Coding agent for Pulsar",
-  "keywords": [ "acp", "agent", "ai", "assistant" ],
+  "keywords": [ "acp", "agent", "ai", "assistant", "chatgpt", "gpt", "llm" ],
   "license": "MIT",
   "engines": {
     "atom": ">=1.130.0"
@@ -20,15 +20,15 @@
     "menus",
     "styles",
     "LICENSE",
-    "README.md",
-    "CHANGELOG.md"
+    "README.md"
   ],
   "activationCommands": {
     "atom-workspace": [
       "pulsar-assistant:open-for-project",
       "pulsar-assistant:toggle",
       "pulsar-assistant:focus",
-      "pulsar-assistant:edit-agents"
+      "pulsar-assistant:edit-agents",
+      "pulsar-assistant:manage-projects"
     ],
     ".tree-view": [
       "pulsar-assistant:open-for-project"
@@ -74,6 +74,13 @@
       "order": 2,
       "title": "Send host context",
       "description": "Tell the agent once per session that it is connected through Pulsar Assistant inside Pulsar. This helps agents answer accurately about what they can and cannot do in the editor."
+    },
+    "modelContextWindows": {
+      "type": "object",
+      "default": {},
+      "order": 3,
+      "title": "Model Context Windows",
+      "description": "Custom context window limits (in tokens) for models. Map model name or prefix to token count, e.g. {\"my-custom-model\": 32768}."
     }
   }
 }

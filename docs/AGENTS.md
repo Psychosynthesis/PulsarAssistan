@@ -10,13 +10,20 @@
 Модули в директории `src/`, собираемые в `lib/` с помощью `build.mjs` (esbuild):
 
 - `main.ts` — точка входа Pulsar: команды, opener, десериализатор, миграция реестра, status-bar. Какие панели открыты, не пишется в `config.cson`. Явный allowlist `projects` (allowCommands / testCommand) — да, в пользовательском конфиге, не в дереве проекта.
-- `session/agent-session.ts` — для `type: acp` JSON-RPC по stdio; для `type: openai` прямой `BuiltinAgent` без ACP-транспорта. Cwd инжектится; `atom.project` не читается. Нет `terminal/*`.
-- `builtin/` — OpenAI-совместимый агент (HTTP). `git` всегда; `run_command` / `run_tests` только по политике проекта.
+- `editor/` — абстракция редактора `EditorBackend` (`PulsarEditorBackend`): чтение/запись несохранённых буферов, подписка на файловые изменения, проверка containment путей внутри проекта.
+- `session/agent-session.ts` — унифицированный фасад сессии. Интерфейс view общается с единым контрактом сессии независимо от выбранного типа агента.
+- `session/backends/` — драйверы агентов (`AgentBackend`):
+  - `AcpCliBackend` — внешний CLI агент поверх stdio/JSON-RPC (ACP);
+  - `BuiltinBackend` — встроенный OpenAI-совместимый HTTP агент.
+- `session/file-tree-manager.ts` — сервис жизненного цикла B-дерева файлов проекта (`tree.json`), дебаунсинг и батчинг изменений.
+- `builtin/` — реализация встроенного агента (OpenAI Chat Completions API) и его инструментов (`read_file`, `write_file`, `grep`, `glob`, `list_dir`, `git`, `run_command`, `run_tests`).
+- `session-storage.ts` — изолированное дисковое хранилище сессий и сообщений проекта.
+- `file-btree.ts` — сбалансированное B-дерево файлов проекта с индексированием и сохранением в tree.json.
 - `project-policy.ts` — разбор `pulsar-assistant.projects`.
 - `view/` — UI панели и glue для `atom.config`. Пикер группирует API и ACP.
 - `agent-config.ts` / `openai-client.ts` / `grep.ts` / `project-uri.ts` / `util.ts` — чистые модули для тестов. `type: command` читается как `acp`.
 
-Порядок работы: `main` открывает `PulsarAssistantView` для корневой директории проекта → представление (view) управляет экземпляром `AgentSession`, привязанным к этому корню → сессия либо вызывает `BuiltinAgent` напрямую, либо поднимает ACP CLI по stdio → представление отображает события.
+Порядок работы: `main` открывает `PulsarAssistantView` для корневой директории проекта → представление (view) управляет экземпляром `AgentSession` → сессия инстанцирует драйвер (`BuiltinBackend` или `AcpCliBackend`) и `EditorBackend` → бэкенд взаимодействует с моделью/CLI и редактором → представление отображает события.
 
 ## Принципы
 

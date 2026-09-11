@@ -7,7 +7,7 @@ import { resolveInsideRoot } from "../project-uri";
 import type { ProjectPolicy } from "../project-policy";
 import type { ChatTool } from "../openai-client";
 
-export const MAX_TOOL_ITERATIONS = 20;
+export const MAX_TOOL_ITERATIONS = 200;
 
 export const TOOL_DEFINITIONS: ChatTool[] = [
   {
