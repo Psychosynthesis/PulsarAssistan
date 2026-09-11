@@ -23,9 +23,9 @@ export interface Agent {
 }
 
 export interface AgentsConfig {
-  version: number;
   activeAgentId?: string;
   agents: Record<string, Agent>;
+  [key: string]: unknown;
 }
 
 export type AcpLaunchTarget = {
@@ -50,7 +50,6 @@ export type LaunchTarget = AcpLaunchTarget | OpenaiLaunchTarget;
 
 export type ResolveReason = "ok" | "no-agents" | "unset-or-invalid";
 
-export const AGENTS_CONFIG_VERSION = 1;
 export const DEFAULT_AGENT_COMMAND = "copilot --acp --stdio";
 export const COPILOT_AGENT_ID = "copilot";
 export const COPILOT_AGENT_NAME = "GitHub Copilot";
@@ -85,9 +84,7 @@ function optionalString(value: unknown): string | undefined {
 }
 
 function hasOpenAiModel(entry: Record<string, unknown>): boolean {
-  return !!(
-    optionalString(entry.defaultModel) || optionalString(entry.model)
-  );
+  return !!(optionalString(entry.defaultModel) || optionalString(entry.model));
 }
 
 function agentType(entry: Record<string, unknown>): AgentType | null {
@@ -172,12 +169,8 @@ export function normalizeAgentsConfig(raw: unknown): AgentsConfig {
     agents[id] = agent;
   }
 
-  const version =
-    typeof source.version === "number" && Number.isFinite(source.version)
-      ? source.version
-      : 0;
-
-  const config = { ...source, version, agents } as AgentsConfig;
+  const config = { ...source, agents } as AgentsConfig;
+  delete config.version;
 
   if (
     typeof source.activeAgentId === "string" &&
@@ -191,41 +184,32 @@ export function normalizeAgentsConfig(raw: unknown): AgentsConfig {
   return config;
 }
 
-// Idempotent, version-gated migration/seed. Returns the resulting config and
-// whether it changed (so callers only persist on change). `version` is the
-// migration marker: its absence means "unmigrated → seed"; a present version
-// with empty agents is an intentional empty state and is respected.
+// Seeds an empty registry and normalizes hand-written agent entries. The
+// presence of an `agents` object is the migration marker: no agents object
+// means a fresh config (seed from legacy command or the Copilot default), while
+// an explicit empty object is respected as an intentional empty registry.
 export function migrateAgentsConfig(
   raw: unknown,
   legacyCommand?: string,
 ): { config: AgentsConfig; changed: boolean } {
-  const hadVersion =
-    isObject(raw) &&
-    typeof raw.version === "number" &&
-    Number.isFinite(raw.version);
+  const source = isObject(raw) ? raw : {};
+  const hasAgents =
+    Object.prototype.hasOwnProperty.call(source, "agents") &&
+    isObject(source.agents);
   const normalized = normalizeAgentsConfig(raw);
 
-  if (hadVersion) {
-    // Already migrated. Respect empty agents and never auto-correct an invalid
-    // activeAgentId (idle re-resolves at runtime). For a future version, stay
-    // non-destructive: use the cleaned shape in memory but do not persist.
-    const changed =
-      normalized.version <= AGENTS_CONFIG_VERSION &&
-      !deepEqual(raw, normalized);
-    return { config: normalized, changed };
-  }
-
-  // Unmigrated. Seed precedence: existing valid agents → legacy command →
-  // copilot default.
-  const config: AgentsConfig = { ...normalized, version: AGENTS_CONFIG_VERSION };
-  const ids = Object.keys(config.agents);
-
-  if (ids.length > 0) {
-    // Preserve hand-written agents; only stamp version and ensure a selection.
-    if (!config.activeAgentId || !config.agents[config.activeAgentId]) {
-      config.activeAgentId = ids[0];
+  if (hasAgents) {
+    const ids = Object.keys(normalized.agents);
+    if (
+      ids.length > 0 &&
+      (!normalized.activeAgentId || !normalized.agents[normalized.activeAgentId])
+    ) {
+      normalized.activeAgentId = ids[0];
     }
-    return { config, changed: true };
+    return {
+      config: normalized,
+      changed: !deepEqual(source, normalized),
+    };
   }
 
   const command =
@@ -233,9 +217,9 @@ export function migrateAgentsConfig(
       ? legacyCommand.trim()
       : DEFAULT_AGENT_COMMAND;
   const seed = seedAgentFromCommand(command);
-  config.agents = { [seed.id]: { name: seed.name, type: "acp", command } };
-  config.activeAgentId = seed.id;
-  return { config, changed: true };
+  normalized.agents = { [seed.id]: { name: seed.name, type: "acp", command } };
+  normalized.activeAgentId = seed.id;
+  return { config: normalized, changed: true };
 }
 
 // STRICT launch resolution. `preferredId` is panel-local (serialized with the

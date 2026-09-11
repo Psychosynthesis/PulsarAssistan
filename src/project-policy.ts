@@ -10,12 +10,14 @@ export type ProjectPolicy = {
   allowCommands: boolean;
   testCommand: string | null;
   maxTurnRequests: number | null;
+  toolCallDelayMs: number | null;
 };
 
 const DENY: ProjectPolicy = {
   allowCommands: false,
   testCommand: null,
   maxTurnRequests: null,
+  toolCallDelayMs: null,
 };
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -52,6 +54,7 @@ export function resolveProjectPolicy(
       allowCommands: value.allowCommands === true,
       testCommand: optionalString(value.testCommand) ?? null,
       maxTurnRequests: positiveInt(value.maxTurnRequests),
+      toolCallDelayMs: positiveInt(value.toolCallDelayMs),
     };
   }
   return DENY;

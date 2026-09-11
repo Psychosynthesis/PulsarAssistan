@@ -1,7 +1,7 @@
 {
   "name": "pulsar-assistant",
   "main": "./lib/main.js",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Coding agent for Pulsar",
   "keywords": [ "acp", "agent", "ai", "assistant", "chatgpt", "gpt", "llm" ],
   "license": "MIT",
@@ -80,7 +80,29 @@
       "default": {},
       "order": 3,
       "title": "Model Context Windows",
-      "description": "Custom context window limits (in tokens) for models. Map model name or prefix to token count, e.g. {\"my-custom-model\": 32768}."
+      "description": "Custom context window limits in tokens. Map a model name or family prefix to a positive integer, for example: modelContextWindows: { \"my-custom-model\": 32768, \"gpt-5.1\": 128000 }."
+    },
+    "ignoredDirectories": {
+      "type": "array",
+      "default": [
+        ".git",
+        "node_modules",
+        "dist",
+        "build",
+        "out",
+        "target",
+        ".venv",
+        "venv",
+        "coverage",
+        ".idea",
+        ".vscode"
+      ],
+      "items": {
+        "type": "string"
+      },
+      "order": 4,
+      "title": "Ignored Directories",
+      "description": "Directory names to ignore when searching with grep/glob and indexing files for the project file tree (B-tree)."
     }
   }
 }

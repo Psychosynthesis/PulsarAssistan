@@ -2,6 +2,8 @@ import * as fs from "fs";
 import * as path from "path";
 import { randomBytes } from "crypto";
 
+import { buildIgnoredDirsSet, getConfiguredIgnoredDirs } from "./ignored-dirs";
+
 export interface FileMetadata {
   path: string; // Relative POSIX path from projectRoot, e.g. "src/main.ts"
   size: number;
@@ -9,37 +11,7 @@ export interface FileMetadata {
   isDirectory: boolean;
 }
 
-export const DEFAULT_PROJECT_SKIP_DIRS = new Set([
-  ".git",
-  ".svn",
-  ".hg",
-  ".idea",
-  ".vscode",
-  "node_modules",
-  "dist",
-  "build",
-  "out",
-  ".output",
-  ".next",
-  ".nuxt",
-  ".turbo",
-  ".parcel-cache",
-  ".svelte-kit",
-  "coverage",
-  "target",
-  "vendor",
-  "__pycache__",
-  ".venv",
-  "venv",
-  "env",
-  ".pytest_cache",
-  ".mypy_cache",
-  ".ruff_cache",
-  ".tox",
-  ".gradle",
-  "cmake-build-debug",
-  "cmake-build-release",
-]);
+export const DEFAULT_PROJECT_SKIP_DIRS: Set<string> = buildIgnoredDirsSet();
 
 export interface SerializedBTreeNode<V> {
   keys: string[];
@@ -115,12 +87,10 @@ export class BTree<V> {
 
   insert(key: string, value: V): void {
     const root = this.root;
-    // If key already exists in the tree, update its value in-place
     if (this._updateIfExists(root, key, value)) {
       return;
     }
 
-    // Root is full: tree grows in height
     if (root.keys.length === 2 * this.t - 1) {
       const s = new BTreeNode<V>(false);
       this.root = s;
@@ -150,14 +120,12 @@ export class BTree<V> {
     const y = parent.children[index];
     const z = new BTreeNode<V>(y.isLeaf);
 
-    // Mid key moves up to parent
     const midKey = y.keys[t - 1];
     const midVal = y.values[t - 1];
 
     z.keys = y.keys.splice(t);
     z.values = y.values.splice(t);
 
-    // Pop the mid element
     y.keys.pop();
     y.values.pop();
 
@@ -215,7 +183,6 @@ export class BTree<V> {
         return true;
       }
 
-      // Key is in internal node
       if (node.children[idx].keys.length >= t) {
         const pred = this._getPredecessor(node.children[idx]);
         node.keys[idx] = pred.key;
@@ -233,7 +200,7 @@ export class BTree<V> {
     }
 
     if (node.isLeaf) {
-      return false; // Key not in tree
+      return false;
     }
 
     const isLastChild = idx === node.keys.length;
@@ -452,7 +419,7 @@ export class ProjectFileTree {
     return this.tree.prefixSearch(prefix).map((entry) => entry.value);
   }
 
-  async scanProject(skipDirs: Set<string> = DEFAULT_PROJECT_SKIP_DIRS): Promise<void> {
+  async scanProject(skipDirs: Set<string> = getConfiguredIgnoredDirs()): Promise<void> {
     const newTree = new BTree<FileMetadata>(this.tree.t);
 
     const walk = async (currentDir: string): Promise<void> => {
@@ -552,35 +519,42 @@ export class ProjectFileTree {
   }
 
   async saveToFile(filePath: string): Promise<void> {
-    const dir = path.dirname(filePath);
-    await fs.promises.mkdir(dir, { recursive: true });
-    const tempPath = `${filePath}.${randomBytes(6).toString("hex")}.tmp`;
     const json = JSON.stringify(this.toJSON(), null, 2);
-    await fs.promises.writeFile(tempPath, json, "utf8");
-    try {
-      await fs.promises.rename(tempPath, filePath);
-    } catch (err) {
-      try {
-        await fs.promises.unlink(filePath);
-        await fs.promises.rename(tempPath, filePath);
-      } catch {
-        await fs.promises.unlink(tempPath).catch(() => {});
-        throw err;
-      }
-    }
+    const tmpPath = `${filePath}.${randomBytes(6).toString("hex")}.tmp`;
+    await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
+    await fs.promises.writeFile(tmpPath, json, "utf8");
+    await fs.promises.rename(tmpPath, filePath);
   }
 
   static async loadFromFile(filePath: string): Promise<ProjectFileTree | null> {
     try {
       const data = await fs.promises.readFile(filePath, "utf8");
-      const parsed = JSON.parse(data) as SerializedProjectFileTree;
-      if (parsed && parsed.version === 1 && parsed.root) {
-        return ProjectFileTree.fromJSON(parsed);
-      }
+      const json = JSON.parse(data) as SerializedProjectFileTree;
+      if (json.version !== 1) return null;
+      return ProjectFileTree.fromJSON(json);
+    } catch {
       return null;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
-      throw error;
     }
+  }
+
+  scheduleSave(filePath: string, debounceMs = 2500): Promise<void> {
+    if (this.saveTimer) {
+      clearTimeout(this.saveTimer);
+    }
+    if (!this.savePromise) {
+      this.savePromise = new Promise<void>((resolve, reject) => {
+        this.saveTimer = setTimeout(async () => {
+          this.saveTimer = null;
+          this.savePromise = null;
+          try {
+            await this.saveToFile(filePath);
+            resolve();
+          } catch (err) {
+            reject(err);
+          }
+        }, debounceMs);
+      });
+    }
+    return this.savePromise;
   }
 }

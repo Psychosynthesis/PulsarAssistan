@@ -38,7 +38,8 @@ export const TOOL_DEFINITIONS: ChatTool[] = [
     type: "function",
     function: {
       name: "write_file",
-      description: "Create or overwrite a text file in the project.",
+      description:
+        "Create or overwrite a text file in the project. Writing inside .git is not allowed.",
       parameters: {
         type: "object",
         additionalProperties: false,
@@ -47,6 +48,31 @@ export const TOOL_DEFINITIONS: ChatTool[] = [
           content: { type: "string" },
         },
         required: ["path", "content"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "move_file",
+      description:
+        "Move a file within the project. Both source and destination must stay inside the project; destination must not already exist.",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          sourcePath: {
+            type: "string",
+            description:
+              "Absolute or project-relative path of the file to move.",
+          },
+          destinationPath: {
+            type: "string",
+            description:
+              "Absolute or project-relative destination path, including filename.",
+          },
+        },
+        required: ["sourcePath", "destinationPath"],
       },
     },
   },
@@ -150,7 +176,7 @@ export const TOOL_DEFINITIONS: ChatTool[] = [
     function: {
       name: "git",
       description:
-        "Run git in the project root. Always available; does not need allowCommands. Pass arguments after git, e.g. status, diff, branch, checkout -b topic, add -A, commit -m \"msg\". Not a shell. No push, pull, fetch, reset, rebase, force branch options, or --edit-description. checkout, switch, add, commit, and mutating branch operations (create, rename, delete) ask for permission. commit needs -m.",
+        "Run git in the project root. Always available; does not need allowCommands. Pass arguments after git, e.g. status, diff, branch, checkout -b topic, add -A, commit -m \"msg\". Not a shell. No push, pull, fetch, reset, rebase, force branch options, or --edit-description. checkout, switch, add, commit, apply, and mutating branch operations (create, rename, delete) ask for permission. apply --check is read-only. commit needs -m.",
       parameters: {
         type: "object",
         additionalProperties: false,
@@ -191,6 +217,13 @@ export type BuiltinHost = {
   writeTextFile(
     params: acp.WriteTextFileRequest,
   ): Promise<acp.WriteTextFileResponse | void>;
+  moveTextFile(params: {
+    sessionId: acp.SessionId;
+    sourcePath: string;
+    destinationPath: string;
+  }): Promise<void>;
+  onStatusNote?: (note: string) => void;
+  onThought?: (thought: string) => void;
 };
 
 export type ToolMeta = {
@@ -234,6 +267,13 @@ function intArg(args: Record<string, unknown>, key: string): number | undefined 
     : undefined;
 }
 
+function assertWritablePath(cwd: string, filePath: string): void {
+  const rel = path.relative(path.resolve(cwd), filePath);
+  if (rel === ".git" || rel.startsWith(`.git${path.sep}`)) {
+    throw new Error(`Writing into .git is not allowed: ${filePath}`);
+  }
+}
+
 export function describeToolCall(
   name: string,
   rawArguments: string,
@@ -254,11 +294,31 @@ export function describeToolCall(
     }
     case "write_file": {
       const filePath = resolveInsideRoot(cwd, stringArg(args, "path") ?? ".");
+      assertWritablePath(cwd, filePath);
       return {
         title: `Write ${path.basename(filePath)}`,
         kind: "edit",
         locations: [{ path: filePath }],
         rawInput: { path: filePath, content: stringArg(args, "content") ?? "" },
+        needsPermission: true,
+      };
+    }
+    case "move_file": {
+      const sourcePath = resolveInsideRoot(
+        cwd,
+        stringArg(args, "sourcePath") ?? ".",
+      );
+      const destinationPath = resolveInsideRoot(
+        cwd,
+        stringArg(args, "destinationPath") ?? ".",
+      );
+      assertWritablePath(cwd, sourcePath);
+      assertWritablePath(cwd, destinationPath);
+      return {
+        title: `Move ${path.basename(sourcePath)}`,
+        kind: "edit",
+        locations: [{ path: sourcePath }, { path: destinationPath }],
+        rawInput: { sourcePath, destinationPath },
         needsPermission: true,
       };
     }
@@ -375,6 +435,8 @@ export async function executeTool(
       return readFileTool(conn, sessionId, cwd, args);
     case "write_file":
       return writeFileTool(conn, sessionId, cwd, args);
+    case "move_file":
+      return moveFileTool(conn, sessionId, cwd, args);
     case "run_command":
       return runCommandTool(cwd, args, signal, policy);
     case "run_tests":
@@ -415,6 +477,7 @@ async function writeFileTool(
   args: Record<string, unknown>,
 ): Promise<ToolSuccess> {
   const filePath = resolveInsideRoot(cwd, stringArg(args, "path") ?? ".");
+  assertWritablePath(cwd, filePath);
   const content = stringArg(args, "content") ?? "";
   let oldText: string | null = null;
   try {
@@ -428,6 +491,26 @@ async function writeFileTool(
     output: `Wrote ${filePath}`,
     content: [{ type: "diff", path: filePath, oldText, newText: content }],
   };
+}
+
+async function moveFileTool(
+  conn: BuiltinHost,
+  sessionId: string,
+  cwd: string,
+  args: Record<string, unknown>,
+): Promise<ToolSuccess> {
+  const sourcePath = resolveInsideRoot(
+    cwd,
+    stringArg(args, "sourcePath") ?? ".",
+  );
+  const destinationPath = resolveInsideRoot(
+    cwd,
+    stringArg(args, "destinationPath") ?? ".",
+  );
+  assertWritablePath(cwd, sourcePath);
+  assertWritablePath(cwd, destinationPath);
+  await conn.moveTextFile({ sessionId, sourcePath, destinationPath });
+  return { output: `Moved ${sourcePath} -> ${destinationPath}` };
 }
 
 async function runCommandTool(

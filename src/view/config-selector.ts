@@ -7,6 +7,10 @@ export type SelectConfigOption = Extract<
   { type: "select" }
 >;
 
+export function configLockKey(sessionId: string, configId: string): string {
+  return `${sessionId}:${configId}`;
+}
+
 // A single dropdown for one session config option; re-rendered on each update to
 // track the agent's authoritative option set.
 export class ConfigSelector {

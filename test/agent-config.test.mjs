@@ -4,7 +4,6 @@ import assert from "node:assert/strict";
 // (20.16, per .nvmrc), which can't execute TypeScript. `npm run build` emits
 // lib/agent-config.js.
 import {
-  AGENTS_CONFIG_VERSION,
   COPILOT_AGENT_ID,
   COPILOT_AGENT_NAME,
   DEFAULT_AGENT_COMMAND,
@@ -27,7 +26,7 @@ test("normalizeAgentsConfig: tolerates undefined and non-objects", () => {
   for (const raw of [undefined, null, 42, "x", []]) {
     const config = normalizeAgentsConfig(raw);
     assert.deepEqual(config.agents, {});
-    assert.equal(config.version, 0);
+    assert.equal(config.version, undefined);
     assert.equal(config.activeAgentId, undefined);
   }
 });
@@ -56,13 +55,14 @@ test("normalizeAgentsConfig: defaults a missing name to the id", () => {
   assert.equal(config.agents.foo.name, "foo");
 });
 
-test("normalizeAgentsConfig: preserves unknown top-level and per-agent fields", () => {
+test("normalizeAgentsConfig: preserves unknown fields but drops legacy version", () => {
   const config = normalizeAgentsConfig({
     version: 1,
     future: "keep-me",
     agents: { foo: { name: "Foo", command: "foo", env: { A: "1" } } },
   });
   assert.equal(config.future, "keep-me");
+  assert.equal(config.version, undefined);
   assert.deepEqual(config.agents.foo.env, { A: "1" });
 });
 
@@ -77,7 +77,6 @@ test("normalizeAgentsConfig: drops an empty activeAgentId", () => {
 test("migrateAgentsConfig: seeds the copilot default when unmigrated and empty", () => {
   const { config, changed } = migrateAgentsConfig(undefined);
   assert.equal(changed, true);
-  assert.equal(config.version, AGENTS_CONFIG_VERSION);
   assert.equal(config.activeAgentId, COPILOT_AGENT_ID);
   assert.deepEqual(config.agents[COPILOT_AGENT_ID], {
     name: COPILOT_AGENT_NAME,
@@ -114,7 +113,6 @@ test("migrateAgentsConfig: precedence — existing agents beat legacy and defaul
     "gemini --experimental-acp",
   );
   assert.deepEqual(Object.keys(config.agents), ["custom"]);
-  assert.equal(config.version, AGENTS_CONFIG_VERSION);
   assert.equal(config.activeAgentId, "custom");
 });
 
@@ -130,36 +128,34 @@ test("migrateAgentsConfig: preserves a valid existing activeAgentId", () => {
 });
 
 // ---------------------------------------------------------------------------
-// migrateAgentsConfig (idempotency / version gating)
+// migrateAgentsConfig (idempotency / configured registry)
 // ---------------------------------------------------------------------------
 
-test("migrateAgentsConfig: is idempotent once migrated", () => {
+test("migrateAgentsConfig: is idempotent once seeded", () => {
   const first = migrateAgentsConfig(undefined).config;
   const second = migrateAgentsConfig(first);
   assert.equal(second.changed, false);
   assert.deepEqual(second.config, first);
 });
 
-test("migrateAgentsConfig: respects an intentionally empty migrated registry", () => {
-  const { config, changed } = migrateAgentsConfig({ version: 1, agents: {} });
+test("migrateAgentsConfig: respects an intentionally empty configured registry", () => {
+  const { config, changed } = migrateAgentsConfig({ agents: {} });
   assert.equal(changed, false);
   assert.deepEqual(config.agents, {});
   assert.equal(config.activeAgentId, undefined);
 });
 
-test("migrateAgentsConfig: does not auto-correct an invalid activeAgentId once migrated", () => {
+test("migrateAgentsConfig: auto-corrects a missing or invalid activeAgentId", () => {
   const { config, changed } = migrateAgentsConfig({
-    version: 1,
     activeAgentId: "gone",
     agents: { a: { name: "A", type: "acp", command: "a" } },
   });
-  assert.equal(changed, false);
-  assert.equal(config.activeAgentId, "gone");
+  assert.equal(changed, true);
+  assert.equal(config.activeAgentId, "a");
 });
 
-test("migrateAgentsConfig: stamps type on migrated agents that omit it", () => {
+test("migrateAgentsConfig: stamps type on configured agents that omit it", () => {
   const { config, changed } = migrateAgentsConfig({
-    version: 1,
     activeAgentId: "a",
     agents: { a: { name: "A", command: "a" } },
   });
@@ -168,15 +164,15 @@ test("migrateAgentsConfig: stamps type on migrated agents that omit it", () => {
   assert.equal(config.activeAgentId, "a");
 });
 
-test("migrateAgentsConfig: future version is non-destructive (no write-back)", () => {
+test("migrateAgentsConfig: drops a legacy version field", () => {
   const { config, changed } = migrateAgentsConfig({
     version: 99,
     activeAgentId: "a",
     agents: { a: { name: "A", command: "a" }, bad: { name: "Bad" } },
   });
-  assert.equal(changed, false);
-  assert.equal(config.version, 99);
-  // Still normalized in memory (invalid entry dropped) but not persisted.
+  assert.equal(changed, true);
+  assert.equal(config.version, undefined);
+  // Still normalized in memory (invalid entry dropped).
   assert.deepEqual(Object.keys(config.agents), ["a"]);
 });
 

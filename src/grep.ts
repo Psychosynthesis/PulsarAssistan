@@ -1,26 +1,12 @@
 import * as fs from "fs";
 import * as path from "path";
 import { resolveInsideRoot } from "./project-uri";
+import {
+  buildIgnoredDirsSet,
+  getConfiguredIgnoredDirs,
+} from "./ignored-dirs";
 
-export const DEFAULT_SKIP_DIRS = new Set([
-  ".git",
-  ".hg",
-  ".svn",
-  ".jj",
-  "node_modules",
-  "dist",
-  "out",
-  "build",
-  "coverage",
-  ".venv",
-  "venv",
-  "__pycache__",
-  ".next",
-  ".turbo",
-  ".cache",
-  "vendor",
-  ".pulsar",
-]);
+export const DEFAULT_SKIP_DIRS: Set<string> = buildIgnoredDirsSet();
 
 export const DEFAULT_MAX_FILE_BYTES = 1 * 1024 * 1024;
 export const DEFAULT_MAX_RESULTS = 50;
@@ -150,7 +136,7 @@ function looksBinary(buffer: Buffer): boolean {
 export async function grepFiles(options: GrepOptions): Promise<GrepMatch[]> {
   const cwd = path.resolve(options.cwd);
   const searchRoot = resolveInsideRoot(cwd, options.searchPath ?? ".");
-  const skipDirs = options.skipDirs ?? DEFAULT_SKIP_DIRS;
+  const skipDirs = options.skipDirs ?? getConfiguredIgnoredDirs();
   const maxResults = Math.max(
     1,
     Math.min(options.maxResults ?? DEFAULT_MAX_RESULTS, HARD_MAX_RESULTS),
@@ -211,7 +197,7 @@ export async function grepFiles(options: GrepOptions): Promise<GrepMatch[]> {
 export async function globFiles(options: GlobOptions): Promise<string[]> {
   const cwd = path.resolve(options.cwd);
   const searchRoot = resolveInsideRoot(cwd, options.searchPath ?? ".");
-  const skipDirs = options.skipDirs ?? DEFAULT_SKIP_DIRS;
+  const skipDirs = options.skipDirs ?? getConfiguredIgnoredDirs();
   const maxResults = Math.max(
     1,
     Math.min(options.maxResults ?? DEFAULT_MAX_RESULTS, HARD_MAX_RESULTS),

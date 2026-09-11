@@ -194,6 +194,8 @@ export class AgentSession {
       throw new Error("Agent session is not ready.");
     }
     this.running = true;
+    this.emit({ type: "turn-start" });
+    let response: acp.PromptResponse | undefined;
     try {
       const blocks: acp.ContentBlock[] = [];
       const includeHostContext =
@@ -215,11 +217,12 @@ export class AgentSession {
         blocks.push({ type: "text", text });
       }
 
-      const response = await this.backend.prompt(blocks);
+      response = await this.backend.prompt(blocks);
       this.refreshSessionList();
       return response;
     } finally {
       this.running = false;
+      this.emit({ type: "turn-end", stopReason: response?.stopReason });
     }
   }
 

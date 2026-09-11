@@ -29,3 +29,5 @@ export function renderMarkdown(el: HTMLElement, text: string): void {
     el.textContent = text;
   }
 }
+
+export const renderMarkdownHtml = renderMarkdown;

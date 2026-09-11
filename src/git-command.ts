@@ -11,7 +11,7 @@ const READ = new Set([
 
 const WRITE = new Set(["checkout", "switch", "add", "commit"]);
 
-const ALLOWED = new Set([...READ, ...WRITE]);
+const ALLOWED = new Set([...READ, ...WRITE, "apply"]);
 
 const BLOCKED_ANYWHERE = new Set([
   "--git-dir",
@@ -40,6 +40,17 @@ const BRANCH_BLOCKED = new Set([
   "--force",
   "--edit-description",
 ]);
+
+const APPLY_READ_FLAGS = new Set([
+  "--check",
+  "--numstat",
+  "--stat",
+  "--summary",
+]);
+
+const APPLY_INDEX_FLAGS = new Set(["--index", "--cached"]);
+
+const APPLY_BLOCKED = new Set(["--unsafe-paths"]);
 
 export type GitPlan = {
   args: string[];
@@ -74,6 +85,17 @@ function branchNeedsPermission(args: string[]): boolean {
   );
 }
 
+function applyNeedsPermission(args: string[]): boolean {
+  const tokens = args.slice(1);
+  if (tokens.some((token) => APPLY_INDEX_FLAGS.has(flagName(token)))) {
+    return true;
+  }
+  const hasReadFlag = tokens.some((token) =>
+    APPLY_READ_FLAGS.has(flagName(token)),
+  );
+  return !hasReadFlag;
+}
+
 // `argv` is already split (no shell). A leading `git` token is ignored.
 export function planGitCommand(argv: string[]): GitPlan {
   if (argv[0] === "git") argv = argv.slice(1);
@@ -100,7 +122,7 @@ export function planGitCommand(argv: string[]): GitPlan {
   }
   if (!ALLOWED.has(sub)) {
     throw new Error(
-      `git ${sub} is not allowed. Allowed: status, diff, log, show, branch, blame, rev-parse, ls-files, checkout, switch, add, commit.`,
+      `git ${sub} is not allowed. Allowed: status, diff, log, show, branch, blame, rev-parse, ls-files, checkout, switch, add, commit, apply.`,
     );
   }
 
@@ -113,6 +135,17 @@ export function planGitCommand(argv: string[]): GitPlan {
     if (blocked) {
       throw new Error(
         `git branch option ${flagName(blocked)} is not allowed.`,
+      );
+    }
+  }
+
+  if (sub === "apply") {
+    const blocked = commandArgs.find((token) =>
+      APPLY_BLOCKED.has(flagName(token)),
+    );
+    if (blocked) {
+      throw new Error(
+        `git apply option ${flagName(blocked)} is not allowed.`,
       );
     }
   }
@@ -130,7 +163,8 @@ export function planGitCommand(argv: string[]): GitPlan {
     args: argv,
     needsPermission:
       WRITE.has(sub) ||
-      (sub === "branch" && branchNeedsPermission(commandArgs)),
+      (sub === "branch" && branchNeedsPermission(commandArgs)) ||
+      (sub === "apply" && applyNeedsPermission(commandArgs)),
     title: `git ${argv.join(" ")}`,
   };
 }

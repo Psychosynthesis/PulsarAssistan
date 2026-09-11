@@ -171,22 +171,19 @@ test("flattenConfigSelectOptions: flattens groups into a single list", () => {
 // ACP plan lifecycle helpers
 // ---------------------------------------------------------------------------
 
-test("completedPlanEntries: only true for a non-empty fully completed plan", () => {
-  assert.equal(completedPlanEntries([]), false);
-  assert.equal(
-    completedPlanEntries([
-      { content: "A", priority: "high", status: "completed" },
-      { content: "B", priority: "medium", status: "completed" },
-    ]),
-    true,
-  );
-  assert.equal(
-    completedPlanEntries([
-      { content: "A", priority: "high", status: "completed" },
-      { content: "B", priority: "medium", status: "in_progress" },
-    ]),
-    false,
-  );
+test("completedPlanEntries: returns only completed entries", () => {
+  const completed = { content: "C", priority: "low", status: "completed" };
+  const pending = { content: "A", priority: "high", status: "pending" };
+  const inProgress = {
+    content: "B",
+    priority: "medium",
+    status: "in_progress",
+  };
+
+  assert.deepEqual(completedPlanEntries([]), []);
+  assert.deepEqual(completedPlanEntries([pending, completed, inProgress]), [
+    completed,
+  ]);
 });
 
 test("nextTurnActivePlanEntries: drops completed entries and keeps interrupted work", () => {

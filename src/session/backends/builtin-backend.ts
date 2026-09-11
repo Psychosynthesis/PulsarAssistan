@@ -254,6 +254,21 @@ export class BuiltinBackend implements AgentBackend {
         this.emit({ type: "file-written", path: params.path });
         return {};
       },
+      moveTextFile: async (params) => {
+        this.assertSessionId(params.sessionId);
+        await this.assertProjectPath(params.sourcePath, false);
+        await this.assertProjectPath(params.destinationPath, true);
+        await this.editor.moveTextFile(params.sourcePath, params.destinationPath);
+        await this.fileTreeManager.notifyPathModified(params.sourcePath);
+        await this.fileTreeManager.notifyPathModified(params.destinationPath);
+        this.emit({ type: "file-written", path: params.destinationPath });
+      },
+      onStatusNote: (text: string) => {
+        this.emit({ type: "status-note", text });
+      },
+      onThought: (text: string) => {
+        this.emit({ type: "thought", text });
+      },
     };
   }
 

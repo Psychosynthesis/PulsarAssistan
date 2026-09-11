@@ -52,6 +52,7 @@ export interface EditorBackend {
   ): Promise<{ content: string }>;
 
   writeTextFile(filePath: string, content: string): Promise<void>;
+  moveTextFile(sourcePath: string, destinationPath: string): Promise<void>;
 
   allowedRealRoots(cwd: string): Promise<string[]>;
   assertProjectPath(filePath: string, roots: string[], forWrite: boolean): Promise<void>;
@@ -60,6 +61,15 @@ export interface EditorBackend {
   onDidChangeFiles(
     callback: (events: FileChangeEvent[]) => void,
   ): { dispose: () => void } | null;
+}
+
+async function pathExists(filePath: string): Promise<boolean> {
+  try {
+    await fs.promises.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export class PulsarEditorBackend implements EditorBackend {
@@ -155,6 +165,35 @@ export class PulsarEditorBackend implements EditorBackend {
       await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
       await fs.promises.writeFile(filePath, content, "utf8");
     }
+  }
+
+  async moveTextFile(
+    sourcePath: string,
+    destinationPath: string,
+  ): Promise<void> {
+    if (await pathExists(destinationPath)) {
+      throw new Error(`Destination already exists: ${destinationPath}`);
+    }
+
+    await fs.promises.mkdir(path.dirname(destinationPath), { recursive: true });
+
+    const sourceEditor = this.editorForPath(sourcePath);
+    if (sourceEditor) {
+      if (this.editorForPath(destinationPath)) {
+        throw new Error(
+          `Destination is already open in an editor: ${destinationPath}`,
+        );
+      }
+      await sourceEditor.saveAs(destinationPath);
+      try {
+        await fs.promises.unlink(sourcePath);
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+      }
+      return;
+    }
+
+    await fs.promises.rename(sourcePath, destinationPath);
   }
 
   async allowedRealRoots(cwd: string): Promise<string[]> {

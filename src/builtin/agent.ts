@@ -18,7 +18,6 @@ import type { BuiltinHost } from "./tools";
 import type { ProjectPolicy } from "../project-policy";
 import {
   StoredContextMessage,
-  StoredSession,
   StoredSessionSummary,
   deleteSession as deleteStoredSession,
   loadSession as loadStoredSession,
@@ -138,6 +137,35 @@ function promptToText(blocks: acp.ContentBlock[]): string {
     }
   }
   return parts.join("\n\n").trim();
+}
+
+function toChatMessages(messages: StoredContextMessage[]): ChatMessage[] {
+  return messages.map((m): ChatMessage => {
+    if (m.role === "tool") {
+      return {
+        role: "tool",
+        tool_call_id: m.tool_call_id ?? "",
+        content: m.content ?? "",
+      };
+    }
+    if (m.role === "assistant") {
+      return {
+        role: "assistant",
+        content: m.content,
+        ...(m.tool_calls ? { tool_calls: m.tool_calls } : {}),
+      };
+    }
+    if (m.role === "system") {
+      return {
+        role: "system",
+        content: m.content ?? "",
+      };
+    }
+    return {
+      role: "user",
+      content: m.content ?? "",
+    };
+  });
 }
 
 export class BuiltinAgent {
@@ -416,7 +444,7 @@ export class BuiltinAgent {
       for await (const event of this.client.complete(
         {
           model: this.target.model,
-          messages: session.messages,
+          messages: toChatMessages(session.messages),
           tools: toolsForPolicy(this.getPolicy()),
           tool_choice: "auto",
         },
@@ -432,7 +460,9 @@ export class BuiltinAgent {
           },
         },
       )) {
-        if (event.type === "text" && event.text) {
+        if (event.type === "thought" && event.text) {
+          this.conn.onThought?.(event.text);
+        } else if (event.type === "text" && event.text) {
           assistantText = `${assistantText}${event.text}`;
           await this.conn.sessionUpdate({
             sessionId,

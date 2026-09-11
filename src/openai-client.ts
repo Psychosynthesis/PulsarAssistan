@@ -1,25 +1,28 @@
-export type ChatRole = "system" | "user" | "assistant" | "tool";
-
-export type ChatToolCall = {
-  id: string;
-  type: "function";
-  function: { name: string; arguments: string };
-};
-
-export type ChatMessage = {
-  role: ChatRole;
-  content?: string | null;
-  name?: string;
-  tool_call_id?: string;
-  tool_calls?: ChatToolCall[];
-};
+export type ChatMessage =
+  | { role: "system"; content: string }
+  | { role: "user"; content: string }
+  | {
+      role: "assistant";
+      content: string | null;
+      tool_calls?: ChatToolCall[];
+    }
+  | { role: "tool"; tool_call_id: string; content: string };
 
 export type ChatTool = {
   type: "function";
   function: {
     name: string;
-    description: string;
+    description?: string;
     parameters: Record<string, unknown>;
+  };
+};
+
+export type ChatToolCall = {
+  id: string;
+  type: "function";
+  function: {
+    name: string;
+    arguments: string;
   };
 };
 
@@ -32,6 +35,7 @@ export type ChatRequest = {
 
 export type ChatEvent =
   | { type: "text"; text: string }
+  | { type: "thought"; text: string }
   | { type: "tool_calls"; calls: ChatToolCall[] }
   | { type: "done"; finishReason: string };
 
@@ -67,10 +71,18 @@ type ChatCompletionChoice = {
   finish_reason?: string | null;
   message?: {
     content?: string | null;
+    reasoning_content?: string | null;
+    thought?: string | null;
+    thinking?: string | null;
+    reasoning?: string | null;
     tool_calls?: ChatToolCall[];
   };
   delta?: {
     content?: string | null;
+    reasoning_content?: string | null;
+    thought?: string | null;
+    thinking?: string | null;
+    reasoning?: string | null;
     tool_calls?: Array<{
       index?: number;
       id?: string;
@@ -110,6 +122,53 @@ function completionsUrl(baseUrl: string): string {
   return `${trimSlash(baseUrl)}/chat/completions`;
 }
 
+export function formatApiErrorMessage(status: number, rawBody: string): string {
+  const trimmed = rawBody.trim();
+  if (!trimmed) {
+    return `API error ${status}`;
+  }
+  try {
+    const json = JSON.parse(trimmed) as {
+      error?: { message?: string; code?: string | number } | string;
+      message?: string;
+      detail?: string;
+    };
+    let detail = "";
+    if (typeof json.error === "string") {
+      detail = json.error;
+    } else if (
+      json.error &&
+      typeof json.error === "object" &&
+      typeof json.error.message === "string"
+    ) {
+      detail = json.error.message;
+    } else if (typeof json.message === "string") {
+      detail = json.message;
+    } else if (typeof json.detail === "string") {
+      detail = json.detail;
+    }
+    if (detail) {
+      const cleaned = detail.replace(/\s+/g, " ").trim();
+      return `API error ${status}: ${
+        cleaned.length > 250 ? cleaned.slice(0, 247) + "…" : cleaned
+      }`;
+    }
+  } catch {
+    // Not JSON
+  }
+
+  const stripped = trimmed
+    .replace(/<[^>]*>/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (stripped) {
+    const short =
+      stripped.length > 200 ? stripped.slice(0, 197) + "…" : stripped;
+    return `API error ${status}: ${short}`;
+  }
+  return `API error ${status}`;
+}
+
 export class OpenAiHttpError extends Error {
   constructor(
     message: string,
@@ -124,7 +183,7 @@ export class OpenAiHttpError extends Error {
 export class OpenAiModelsError extends Error {
   constructor(
     message: string,
-    readonly status: number | null,
+    readonly status: number,
     readonly body: string,
   ) {
     super(message);
@@ -133,12 +192,10 @@ export class OpenAiModelsError extends Error {
 }
 
 export class OpenAiChatClient {
-  private readonly fetchImpl: typeof fetch;
-  readonly stream: boolean;
+  private fetchImpl: typeof fetch;
 
   constructor(private readonly options: OpenAiClientOptions) {
     this.fetchImpl = options.fetch ?? boundFetch;
-    this.stream = options.stream === true;
   }
 
   async *complete(
@@ -146,11 +203,11 @@ export class OpenAiChatClient {
     signal: AbortSignal,
     options: { onResponse?: (usage: OpenAiResponseUsage) => void } = {},
   ): AsyncIterable<ChatEvent> {
-    if (this.stream) {
+    if (this.options.stream) {
       yield* this.completeStream(request, signal, options);
-      return;
+    } else {
+      yield* this.completeOnce(request, signal, options);
     }
-    yield* this.completeOnce(request, signal, options);
   }
 
   private async *completeOnce(
@@ -164,6 +221,13 @@ export class OpenAiChatClient {
       requestBytes,
       responseBytes: utf8ByteLength(text),
     });
+    if (!response.ok) {
+      throw new OpenAiHttpError(
+        formatApiErrorMessage(response.status, text),
+        response.status,
+        text,
+      );
+    }
     let parsed: ChatCompletionResponse;
     try {
       parsed = JSON.parse(text) as ChatCompletionResponse;
@@ -174,15 +238,16 @@ export class OpenAiChatClient {
         text,
       );
     }
-    if (!response.ok) {
-      throw new OpenAiHttpError(
-        parsed.error?.message || `API error ${response.status}`,
-        response.status,
-        text,
-      );
-    }
     const choice = parsed.choices?.[0];
     const message = choice?.message;
+    const reasoning =
+      message?.reasoning_content ||
+      message?.thought ||
+      message?.thinking ||
+      message?.reasoning;
+    if (reasoning) {
+      yield { type: "thought", text: reasoning };
+    }
     if (message?.content) yield { type: "text", text: message.content };
     if (message?.tool_calls && message.tool_calls.length > 0) {
       yield { type: "tool_calls", calls: message.tool_calls };
@@ -203,7 +268,7 @@ export class OpenAiChatClient {
         responseBytes: utf8ByteLength(body),
       });
       throw new OpenAiHttpError(
-        `API error ${response.status}`,
+        formatApiErrorMessage(response.status, body),
         response.status,
         body,
       );
@@ -231,6 +296,14 @@ export class OpenAiChatClient {
       if (!choice) continue;
       if (choice.finish_reason) finishReason = choice.finish_reason;
       const delta = choice.delta;
+      const thoughtDelta =
+        delta?.reasoning_content ||
+        delta?.thought ||
+        delta?.thinking ||
+        delta?.reasoning;
+      if (thoughtDelta) {
+        yield { type: "thought", text: thoughtDelta };
+      }
       if (delta?.content) yield { type: "text", text: delta.content };
       for (const part of delta?.tool_calls ?? []) {
         const index = part.index ?? 0;

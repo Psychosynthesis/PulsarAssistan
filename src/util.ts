@@ -133,8 +133,8 @@ export type PlanLifecycleEntry = { status: acp.PlanEntryStatus };
 
 export function completedPlanEntries<T extends PlanLifecycleEntry>(
   entries: T[],
-): boolean {
-  return entries.length > 0 && entries.every((entry) => entry.status === "completed");
+): T[] {
+  return entries.filter((entry) => entry.status === "completed");
 }
 
 export function nextTurnActivePlanEntries<T extends PlanLifecycleEntry>(
@@ -307,7 +307,7 @@ export type CapturedProcessResult = {
 
 // Spawn without a shell. Used by builtin run_command / run_tests after the
 // user has opted in via Pulsar config. Not the ACP terminal API.
-export function runCapturedProcess(options: {
+export async function runCapturedProcess(options: {
   command: string;
   args: string[];
   cwd: string;

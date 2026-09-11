@@ -3,6 +3,8 @@ import type { LaunchTarget } from "../agent-config";
 
 export type AgentEvent =
   | { type: "status"; text: string }
+  | { type: "status-note"; text: string }
+  | { type: "thought"; text: string }
   | {
       type: "initialized";
       info: acp.Implementation | null;
