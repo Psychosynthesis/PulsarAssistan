@@ -431,6 +431,9 @@ export class PulsarAssistantView {
   }
 
   private updateContextProgress(): void {
+    const isOpenai = this.activeTarget?.kind === "openai";
+    this.contextProgressBar.setVisible(isOpenai);
+    if (!isOpenai) return;
     const messages = this.session.getSessionMessages();
     const pendingText = this.input ? this.input.value : "";
     const currentModel = this.currentModelId() || "gpt-4o";
@@ -2918,7 +2921,7 @@ export class PulsarAssistantView {
       if (isActive) row.classList.add("is-active");
 
       const selectBtn = document.createElement("button");
-      selectBtn.classList.add("pulsar-assistant-session-select");
+      selectBtn.classList.add("pulsar-assistant-session-entry");
       selectBtn.type = "button";
       if (isActive) selectBtn.setAttribute("aria-current", "true");
 

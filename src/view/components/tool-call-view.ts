@@ -79,14 +79,9 @@ function summarizeToolUpdate(update: ToolUpdate): string {
 
 function setCollapsed(view: ToolView, collapsed: boolean): void {
   view.expanded = !collapsed;
-  view.body.classList.toggle(
-    "pulsar-assistant-tool-body--collapsed",
-    collapsed,
-  );
-  view.body.classList.toggle(
-    "pulsar-assistant-tool-body--expanded",
-    !collapsed,
-  );
+  view.body.style.display = collapsed ? "none" : "";
+  view.summary.style.display =
+    collapsed && view.summary.textContent ? "" : "none";
   view.toggle.textContent = collapsed ? "Show more" : "Show less";
 }
 
@@ -148,7 +143,7 @@ export class ToolCallManager {
     this.host.onBeforeNewToolCall?.();
 
     const block = document.createElement("div");
-    block.classList.add("pulsar-assistant-tool-call");
+    block.classList.add("pulsar-assistant-tool");
     block.dataset.toolCallId = toolCall.toolCallId;
     if (toolCall.kind) block.dataset.kind = toolCall.kind;
 
@@ -174,16 +169,13 @@ export class ToolCallManager {
 
     heading.appendChild(title);
     heading.appendChild(status);
-    heading.appendChild(summary);
     block.appendChild(heading);
-    block.appendChild(toggle);
 
     const body = document.createElement("div");
-    body.classList.add(
-      "pulsar-assistant-tool-body",
-      "pulsar-assistant-tool-body--collapsed",
-    );
+    body.classList.add("pulsar-assistant-tool-body");
     block.appendChild(body);
+    block.appendChild(summary);
+    block.appendChild(toggle);
 
     const toolView: ToolView = {
       element: block,
@@ -292,13 +284,14 @@ export class ToolCallManager {
 
     const summaryText = summarizeToolUpdate(update);
     view.summary.textContent = summaryText;
-    view.summary.style.display = summaryText ? "" : "none";
 
     const wasCollapsible = view.collapsible;
     view.collapsible = true;
     view.toggle.style.display = "";
     if (!wasCollapsible) {
       setCollapsed(view, true);
+    } else if (!view.expanded) {
+      view.summary.style.display = summaryText ? "" : "none";
     }
   }
 }

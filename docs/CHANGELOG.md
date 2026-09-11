@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.2] - 2026-09-12
+
+- **Project Settings Menu**: Moved `Edit configuration…` and `Manage projects & storage…` out of the agent picker into a dedicated gear menu next to `New session`.
+- **Set Test Command Modal**: Added `Set test command…` to the project settings menu with a focused modal for editing the per-project `testCommand` used by `run_tests`.
+- **Tool Call Summary Collapse**: Tool output in chat now collapses to a compact summary (`Grep … — N results`, `Glob … — N files`, etc.) with an explicit `Show more` / `Show less` toggle.
+- **Move File Tool**: Added `move_file(sourcePath, destinationPath)` with project-root containment checks, `.git` write protection, and cross-platform path handling. Open editors use `saveAs`; closed files use `fs.rename`.
+- **Project Policy Helpers**: Unified `maxTurnRequests`, `toolCallDelayMs`, and `testCommand` persistence through shared per-project config helpers.
+- **Git Apply Support**: Added `git apply` to the builtin git tool. `apply --check`, `--stat`, `--numstat`, and `--summary` are read-only; actual applies and `--index`/`--cached` require permission, and `--unsafe-paths` is blocked.
+- **Model Context Windows Defaults**: The `modelContextWindows` map is now materialized automatically from built-in defaults during activation when no custom values exist.
+- **Removed Legacy Config Versioning**: Removed the unused `version` field and `pulsar-assistant.version` config key from the agent registry.
+- **View Styling Fixes**: Restored styling for extracted plan, permission, auth, and tool-call components and fixed the composer footer layout.
+
 ## [0.5.1] - 2026-09-12
 - **Unified Ignored Directories & Package Configuration**: Consolidated conflicting ignore directory lists from `grep.ts` and `file-btree.ts` into a single module `src/ignored-dirs.ts` (`DEFAULT_IGNORED_DIRS`). Added `ignoredDirectories` configuration option in `package.json` (`configSchema`) so users can customize ignored directories through Pulsar's Settings view.
 - **Configurable Tool Call Delay (TPM / 429 Protection)**: Introduced per-project configurable delay between tool calls (`toolCallDelayMs`, defaults to 500ms, minimum 100ms) with a dedicated "Delay (ms)" control in the panel actions bar. Prevents rapid-fire API completions from hitting rate limits (HTTP 429).
