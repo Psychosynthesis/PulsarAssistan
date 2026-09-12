@@ -5,7 +5,7 @@ echo "Run precommit hook"
 
 npm run typecheck
 npm run build
-npm run test
+npm run test -- --test-reporter=dot
 
 # -------------------------------------------------------------------
 # Проверка пробелов в именах файлов внутри src
@@ -26,7 +26,3 @@ if ((${#files_with_spaces[@]} > 0)); then
   echo "Переименуй файлы без пробелов и попробуй снова."
   exit 1
 fi
-
-
-npm run test
-npx tsc --noEmit
