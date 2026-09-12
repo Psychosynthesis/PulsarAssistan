@@ -273,6 +273,7 @@ export class PulsarAssistantView {
       ),
       atom.config.onDidChange("pulsar-assistant.modelContextWindows", () => {
         this.updateContextProgress();
+      this.updateInputControls();
       }),
     );
 
@@ -307,6 +308,7 @@ export class PulsarAssistantView {
         return;
       }
       this.updateContextProgress();
+      this.updateInputControls();
     };
     document.addEventListener(
       "pulsar-assistant:builtin-session-new",
@@ -425,6 +427,7 @@ export class PulsarAssistantView {
     }
     this.renderModelSelector();
     this.updateContextProgress();
+      this.updateInputControls();
     if (this.infoPanelOpen) this.renderInfoPanel();
     this.renderLiveRow();
     if (this.isShown && !this.session.sessionId && !this.session.running) {
@@ -502,6 +505,7 @@ export class PulsarAssistantView {
     this.session.setModel(id);
     this.renderModelSelector();
     this.updateContextProgress();
+      this.updateInputControls();
     if (this.infoPanelOpen) this.renderInfoPanel();
     if (this.conversation.childElementCount > 0) {
       this.appendNote(`Model switched to ${id}`);
@@ -534,6 +538,7 @@ export class PulsarAssistantView {
       this.modelWarning = false;
       this.renderModelSelector();
       this.updateContextProgress();
+      this.updateInputControls();
       if (this.infoPanelOpen) this.renderInfoPanel();
     } catch {
       if (generation !== this.modelFetchGeneration || controller.signal.aborted) {
@@ -916,6 +921,7 @@ export class PulsarAssistantView {
     this.input.addEventListener("input", () => {
       this.updateSlashMenu();
       this.updateContextProgress();
+      this.updateInputControls();
     });
 
     const actions = document.createElement("div");
@@ -1735,6 +1741,7 @@ export class PulsarAssistantView {
     if (text.length === 0 && context.length === 0) return;
     this.input.value = "";
     this.updateContextProgress();
+      this.updateInputControls();
     this.appendUserMessage(text, context);
     this.endStreamingBlocks();
     this.userEchoSkipCount++;
@@ -2089,6 +2096,7 @@ export class PulsarAssistantView {
       .then(() => {
         this.input.focus();
         this.updateContextProgress();
+      this.updateInputControls();
       })
       .catch((error) => {
         if (currentId) this.rollbackConversation(currentId);
@@ -2118,6 +2126,7 @@ export class PulsarAssistantView {
       this.userEchoSkipCount = 0;
       this.input.focus();
       this.updateContextProgress();
+      this.updateInputControls();
       return;
     }
 
@@ -2137,6 +2146,7 @@ export class PulsarAssistantView {
         this.planBarView.syncSession(id);
         this.input.focus();
         this.updateContextProgress();
+      this.updateInputControls();
       })
       .catch((error) => {
         this.hideLoadingOverlay();
@@ -2249,6 +2259,7 @@ export class PulsarAssistantView {
         this.renderConfigSelectors();
         this.renderModelSelector();
         this.updateContextProgress();
+      this.updateInputControls();
         this.updateInputControls();
         break;
       case "turn-start":
@@ -2274,6 +2285,7 @@ export class PulsarAssistantView {
         }
         this.session.refreshSessionList();
         this.updateContextProgress();
+      this.updateInputControls();
         this.statusBar.clear();
         break;
       case "update":
@@ -2349,6 +2361,7 @@ export class PulsarAssistantView {
           (update.status === "completed" || update.status === "failed")
         ) {
           this.updateContextProgress();
+      this.updateInputControls();
         }
         break;
       case "plan":
@@ -2855,7 +2868,20 @@ export class PulsarAssistantView {
       "pulsar-assistant-message",
       `pulsar-assistant-message--error`,
     );
-    message.textContent = text;
+    const parts = text.split("\n\n");
+    if (parts.length > 1) {
+      const header = document.createElement("div");
+      header.classList.add("pulsar-assistant-error-header");
+      header.textContent = parts[0];
+      message.appendChild(header);
+
+      const body = document.createElement("pre");
+      body.classList.add("pulsar-assistant-error-body");
+      body.textContent = parts.slice(1).join("\n\n");
+      message.appendChild(body);
+    } else {
+      message.textContent = text;
+    }
     this.conversation.appendChild(message);
     this.scrollToBottom();
   }
@@ -3126,6 +3152,7 @@ export class PulsarAssistantView {
       .start(target)
       .then(() => {
         this.updateContextProgress();
+      this.updateInputControls();
       })
       .catch((error) => {
         if (!isStartupCancellation(error)) {
@@ -3151,6 +3178,7 @@ export class PulsarAssistantView {
         );
       }
       this.updateContextProgress();
+      this.updateInputControls();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       this.statusBar.setText(`Failed to compact context: ${msg}`, 5000);

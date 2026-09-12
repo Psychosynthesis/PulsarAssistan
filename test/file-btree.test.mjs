@@ -136,10 +136,16 @@ test("ProjectFileTree: scan, serialize, save and reload", async (t) => {
   await pTree.updatePath("src/new-file.ts");
   assert.ok(!pTree.has("src/new-file.ts"));
 
-  // Hierarchy text
+  // TSV line protocol text
   const hierarchy = pTree.toHierarchyText(2);
-  assert.ok(hierarchy.includes("- package.json"));
-  assert.ok(hierarchy.includes("more files"));
+  assert.ok(hierarchy.startsWith("F\t"));
+  assert.ok(hierarchy.includes("size="));
+  assert.ok(hierarchy.includes("omitted"));
+
+  const fullProtocol = pTree.toHierarchyText(100);
+  assert.ok(fullProtocol.includes("F\tpackage.json\tsize="));
+  assert.ok(fullProtocol.includes("F\tsrc/index.ts\tsize="));
+  assert.ok(fullProtocol.includes("F\tsrc/sub/util.ts\tsize="));
 
   // Save to file & load from file
   const treeFilePath = path.join(tmpDir, "tree.json");

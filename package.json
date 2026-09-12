@@ -1,7 +1,7 @@
 {
   "name": "pulsar-assistant",
   "main": "./lib/main.js",
-  "version": "0.5.3",
+  "version": "0.6.0",
   "description": "Coding agent for Pulsar",
   "keywords": [ "acp", "agent", "ai", "assistant", "chatgpt", "gpt", "llm" ],
   "license": "MIT",

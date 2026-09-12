@@ -172,7 +172,6 @@ test("migrateAgentsConfig: drops a legacy version field", () => {
   });
   assert.equal(changed, true);
   assert.equal(config.version, undefined);
-  // Still normalized in memory (invalid entry dropped).
   assert.deepEqual(Object.keys(config.agents), ["a"]);
 });
 
@@ -410,7 +409,7 @@ test("toLaunchTarget: openai accepts an explicit panel model", () => {
   }
 });
 
-test("toLaunchTarget: openai honors a custom getModelsUrl", () => {
+test("toLaunchTarget: openai honors a custom modelsUrl", () => {
   const target = toLaunchTarget(
     "ours",
     {
@@ -419,7 +418,7 @@ test("toLaunchTarget: openai honors a custom getModelsUrl", () => {
       baseUrl: "https://api.example/v1",
       defaultModel: "prod",
       apiKey: "k",
-      getModelsUrl: "https://example.com/custom/models",
+      modelsUrl: "https://example.com/custom/models",
     },
     {},
   );

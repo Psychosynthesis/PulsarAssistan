@@ -43,8 +43,8 @@ function systemPrompt(cwd: string, overview?: string): string {
   const parts = [
     "You are a coding agent inside the Pulsar editor, talking to an OpenAI-compatible API.",
     `The project working directory is ${cwd}. Stay inside it.`,
-    "Use read_file, write_file, grep, glob, list_dir, and git to inspect and change the project.",
-    "Prefer grep/glob/list_dir over running programs for search. grep is a JavaScript regex walk and works on Windows.",
+    "Use read_file, write_file, move_file, find_files, get_file_structure, list_dir, grep, and git to inspect and change the project.",
+    "Prefer grep/find_files/list_dir over running programs for search. grep performs literal substring search across project files. find_files matches file names with DSL patterns (*, ?, |, &, \\) and extension filters.",
     "git is always available and does not need allowCommands. Use it for status, diff, branch, checkout -b, add, and commit.",
     "There is no terminal and no interactive shell. Do not try to open one.",
     "run_command is available only when the user set allowCommands: true for this project in Pulsar user config (config.cson), which is outside the project. You cannot enable it by editing files in the repo.",
@@ -67,6 +67,21 @@ function newId(): string {
 function emitDocumentEvent<T>(name: string, detail: T): void {
   if (typeof document === "undefined") return;
   document.dispatchEvent(new CustomEvent<T>(name, { detail }));
+}
+
+async function sleepWithSignal(ms: number, signal: AbortSignal): Promise<void> {
+  if (ms <= 0 || signal.aborted) return;
+  return new Promise<void>((resolve) => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 function grepResultSummary(content: string): string {
@@ -98,8 +113,8 @@ function compactToolMessage(message: StoredContextMessage): boolean {
     summary = `[read_file result omitted from history; ${lines} lines read]`;
   } else if (
     toolName === "list_dir" ||
-    toolName === "glob" ||
-    toolName === "find_files"
+    toolName === "find_files" ||
+    toolName === "get_file_structure"
   ) {
     const entries = content
       .split(/\r?\n/)
@@ -115,6 +130,46 @@ function compactToolMessage(message: StoredContextMessage): boolean {
 
   if (summary.length < content.length) {
     message.content = summary;
+    if (!message.metadata) message.metadata = {};
+    message.metadata.isSummary = true;
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Summarizes large arguments in assistant messages (e.g. write_file content) to prevent context bloating.
+ */
+function compactAssistantMessage(message: StoredContextMessage): boolean {
+  if (message.role !== "assistant" || !message.tool_calls || message.metadata?.isSummary) {
+    return false;
+  }
+  let changed = false;
+  for (const call of message.tool_calls) {
+    if (call.function.name === "write_file" && call.function.arguments) {
+      try {
+        const parsed = JSON.parse(call.function.arguments);
+        let modified = false;
+        if (typeof parsed.content === "string" && parsed.content.length > 80) {
+          const lineCount = parsed.content.split(/\r?\n/).length;
+          parsed.content = `[File content omitted; ${lineCount} lines / ${parsed.content.length} characters written]`;
+          modified = true;
+        }
+        if (typeof parsed.replaceText === "string" && parsed.replaceText.length > 120) {
+          const lineCount = parsed.replaceText.split(/\r?\n/).length;
+          parsed.replaceText = `[Replacement text omitted; ${lineCount} lines / ${parsed.replaceText.length} characters]`;
+          modified = true;
+        }
+        if (modified) {
+          call.function.arguments = JSON.stringify(parsed);
+          changed = true;
+        }
+      } catch {
+        // Ignore JSON parse errors
+      }
+    }
+  }
+  if (changed) {
     if (!message.metadata) message.metadata = {};
     message.metadata.isSummary = true;
     return true;
@@ -354,12 +409,7 @@ export class BuiltinAgent {
   }
 
   /**
-   * Compacts conversation context by summarizing tool call outputs across all messages in the session.
-   *
-   * TODO: In the future, investigate smarter and deeper context compaction strategies:
-   * - Ask the model itself to summarize earlier dialogue turns (rolling conversation summaries).
-   * - Implement a lightweight local heuristic/semantic analyzer to discard redundant context
-   *   or intermediate file reads when a later version of the file was read or written.
+   * Compacts conversation context by summarizing tool call outputs and assistant write payloads.
    */
   async compactContext(sessionId: string): Promise<{ compactedCount: number }> {
     const session = this.sessions.get(sessionId);
@@ -370,6 +420,8 @@ export class BuiltinAgent {
       if (compactToolMessage(msg)) {
         compactedCount++;
         session.seenToolMessages.add(msg);
+      } else if (compactAssistantMessage(msg)) {
+        compactedCount++;
       }
     }
 
@@ -497,6 +549,11 @@ export class BuiltinAgent {
       });
       for (const call of toolCalls) {
         if (signal.aborted) return { stopReason: "cancelled" };
+        const delayMs = this.getPolicy().toolCallDelayMs ?? 500;
+        if (delayMs > 0) {
+          await sleepWithSignal(delayMs, signal);
+          if (signal.aborted) return { stopReason: "cancelled" };
+        }
         await this.handleToolCall(sessionId, session, call, signal);
       }
     }
@@ -632,6 +689,7 @@ export class BuiltinAgent {
         session.cwd,
         signal,
         this.getPolicy(),
+        this.getFileTree ? this.getFileTree() : null,
       );
       await this.conn.sessionUpdate({
         sessionId,

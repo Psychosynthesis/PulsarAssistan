@@ -127,44 +127,19 @@ export function formatApiErrorMessage(status: number, rawBody: string): string {
   if (!trimmed) {
     return `API error ${status}`;
   }
+  let formattedDetails: string | null = null;
   try {
-    const json = JSON.parse(trimmed) as {
-      error?: { message?: string; code?: string | number } | string;
-      message?: string;
-      detail?: string;
-    };
-    let detail = "";
-    if (typeof json.error === "string") {
-      detail = json.error;
-    } else if (
-      json.error &&
-      typeof json.error === "object" &&
-      typeof json.error.message === "string"
-    ) {
-      detail = json.error.message;
-    } else if (typeof json.message === "string") {
-      detail = json.message;
-    } else if (typeof json.detail === "string") {
-      detail = json.detail;
-    }
-    if (detail) {
-      const cleaned = detail.replace(/\s+/g, " ").trim();
-      return `API error ${status}: ${
-        cleaned.length > 250 ? cleaned.slice(0, 247) + "…" : cleaned
-      }`;
-    }
+    const json = JSON.parse(trimmed);
+    formattedDetails = JSON.stringify(json, null, 2);
   } catch {
-    // Not JSON
+    const stripped = trimmed.replace(/<[^>]*>/g, "").trim();
+    if (stripped) {
+      formattedDetails = stripped;
+    }
   }
 
-  const stripped = trimmed
-    .replace(/<[^>]*>/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-  if (stripped) {
-    const short =
-      stripped.length > 200 ? stripped.slice(0, 197) + "…" : stripped;
-    return `API error ${status}: ${short}`;
+  if (formattedDetails) {
+    return `API error ${status}\n\n${formattedDetails}`;
   }
   return `API error ${status}`;
 }
@@ -439,12 +414,14 @@ async function* readSseData(
   }
 }
 
-function sseData(block: string): string | null {
-  const lines = block.split(/\r?\n/);
-  const data: string[] = [];
+function sseData(chunk: string): string | null {
+  const lines = chunk.split("\n");
+  const dataLines: string[] = [];
   for (const line of lines) {
-    if (line.startsWith("data:")) data.push(line.slice(5).trimStart());
+    if (line.startsWith("data:")) {
+      dataLines.push(line.slice(5).trimStart());
+    }
   }
-  if (data.length === 0) return null;
-  return data.join("\n");
+  if (dataLines.length === 0) return null;
+  return dataLines.join("\n");
 }

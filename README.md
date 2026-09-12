@@ -216,7 +216,7 @@ The bar turns yellow above 70% and red above 90%.
 
 ### Compacting conversation context
 
-To save tokens on long multi-turn conversations, click the **Compact conversation context** button (`icon-fold`) in the header right controls. This replaces bulky historical outputs from previous tool invocations (`read_file`, `list_dir`, `glob`, `git`, etc.) with compact summaries, immediately reducing context window consumption for follow-up prompts.
+To save tokens on long multi-turn conversations, click the **Compact conversation context** button (`icon-fold`) in the header right controls. This replaces bulky historical outputs from previous tool invocations (`read_file`, `list_dir`, `find_files`, `get_file_structure`, `git`, `write_file`, etc.) with compact summaries, immediately reducing context window consumption for follow-up prompts.
 
 ### Managing projects & storage
 

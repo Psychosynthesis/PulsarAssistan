@@ -10,13 +10,16 @@
 
 .pulsar-assistant-header-row1 {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+  min-width: 0;
 }
 
 .pulsar-assistant-picker-wrap {
   position: relative;
-  flex-shrink: 0;
+  flex-shrink: 1;
+  min-width: 0;
   // Pull the borderless label flush with the version line below so the agent
   // name and version stack as a single title/subtitle identity block.
   margin-left: -6px;
@@ -65,11 +68,42 @@
   }
 }
 
+// Header model selector. Base dropdown/menu styling lives in common.less.
+.pulsar-assistant-model-wrap {
+  position: relative;
+  flex-shrink: 1;
+  min-width: 0;
+}
+
+.pulsar-assistant-model-selector {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.pulsar-assistant-model-trigger {
+  max-width: 14em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pulsar-assistant-model-menu {
+  top: 100%;
+  bottom: auto;
+  left: 0;
+  max-width: 24em;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
 .pulsar-assistant-header-row2 {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   gap: 8px;
   margin-top: 1px;
+  min-width: 0;
   color: @text-color-subtle;
   font-size: 0.82em;
   line-height: 1.4;
@@ -105,6 +139,7 @@
 
 .pulsar-assistant-header-right {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   margin-left: auto;
@@ -185,6 +220,7 @@
 
 .pulsar-assistant-info-header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: @component-padding;
   margin-bottom: (@component-padding * 0.75);
@@ -407,31 +443,4 @@
   &:disabled {
     cursor: default;
   }
-}
-
-.pulsar-assistant-model-wrap {
-  position: relative;
-  flex-shrink: 1;
-  min-width: 0;
-}
-
-.pulsar-assistant-model-selector {
-  display: inline-flex;
-  align-items: center;
-}
-
-.pulsar-assistant-model-trigger {
-  max-width: 14em;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.pulsar-assistant-model-menu {
-  top: 100%;
-  bottom: auto;
-  left: 0;
-  max-width: 24em;
-  max-height: 50vh;
-  overflow-y: auto;
 }

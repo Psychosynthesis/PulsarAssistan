@@ -7,6 +7,7 @@
   // Allow the flex item to shrink below content height so internal
   // overflow-y scrolling works inside the conversation wrapper.
   min-height: 0;
+  overflow-x: hidden;
   overflow-y: auto;
   // Disable scroll anchoring: late layout growth above the streaming output
   // would bump scrollTop and fire a scroll event that breaks stick-to-bottom.
@@ -25,6 +26,8 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .pulsar-assistant-scroll-to-bottom {
@@ -97,6 +100,7 @@
 }
 
 .pulsar-assistant-message {
+  min-width: 0;
   margin-bottom: @component-padding;
 
   .pulsar-assistant-message-role {
@@ -108,13 +112,16 @@
   }
 
   .pulsar-assistant-message-body {
-    white-space: pre-wrap;
+    min-width: 0;
+    overflow-wrap: anywhere;
     word-break: break-word;
+    white-space: pre-wrap;
   }
 
   // Rendered Markdown drops pre-wrap so marked's inter-block newlines don't
   // double the block margins, then tightens those margins.
   .pulsar-assistant-markdown {
+    min-width: 0;
     white-space: normal;
 
     > :first-child {
@@ -152,6 +159,13 @@
       margin: 0.6em 0 0.3em;
       line-height: 1.25;
     }
+
+    pre,
+    table {
+      display: block;
+      max-width: 100%;
+      overflow-x: auto;
+    }
   }
 }
 
@@ -171,11 +185,32 @@
 
 .pulsar-assistant-message--error {
   color: @text-color-error;
-  white-space: pre-wrap;
-  padding: (@component-padding / 2);
-  border: 1px solid @text-color-error;
+  background: fade(@text-color-error, 6%);
+  padding: (@component-padding / 2) @component-padding;
+  border: 1px solid fade(@text-color-error, 40%);
   border-radius: @component-border-radius;
   margin-bottom: @component-padding;
+  overflow-wrap: anywhere;
+
+  .pulsar-assistant-error-header {
+    font-weight: 600;
+    font-size: 1em;
+    color: @text-color-error;
+    margin-bottom: 4px;
+  }
+
+  .pulsar-assistant-error-body {
+    margin: 4px 0 0;
+    font-size: 0.85em;
+    color: fade(@text-color, 85%);
+    background: fade(#000, 25%);
+    padding: (@component-padding / 2);
+    border-radius: @component-border-radius;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 25em;
+    overflow-y: auto;
+  }
 }
 
 .pulsar-assistant-message-context {
@@ -186,6 +221,7 @@
 }
 
 .pulsar-assistant-tool {
+  min-width: 0;
   background: rgba(200, 200, 200, 0.05);
   border: 1px solid @pane-item-border-color;
   border-radius: @component-border-radius;
@@ -195,6 +231,19 @@
   .pulsar-assistant-tool-heading {
     display: flex;
     align-items: center;
+    justify-content: space-between;
+    min-width: 0;
+    gap: 8px;
+    margin-bottom: 2px;
+  }
+
+  .pulsar-assistant-tool-title {
+    font-weight: 600;
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .pulsar-assistant-tool-heading--link .pulsar-assistant-tool-title {
@@ -206,7 +255,10 @@
   }
 
   .pulsar-assistant-tool-status {
-    margin-right: 6px;
+    flex: 0 0 auto;
+    margin-left: auto;
+    font-size: 0.85em;
+    text-transform: capitalize;
   }
 
   &[data-status="failed"] .pulsar-assistant-tool-status {
@@ -218,9 +270,11 @@
   }
 
   .pulsar-assistant-tool-body {
+    min-width: 0;
     margin-top: 4px;
     padding: 0 (@component-padding / 2);
     white-space: pre-wrap;
+    overflow-wrap: anywhere;
     word-break: break-word;
     font-family: monospace;
     font-size: 0.9em;
@@ -250,6 +304,7 @@
     color: @text-color-subtle;
     font-size: 0.82em;
     font-style: italic;
+    overflow-wrap: anywhere;
   }
 
   .pulsar-assistant-tool-toggle {
@@ -270,12 +325,15 @@
 }
 
 .pulsar-assistant-diff {
+  min-width: 0;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
   font-family: monospace;
   font-size: 0.9em;
 
   .pulsar-assistant-diff-line {
     white-space: pre-wrap;
+    overflow-wrap: anywhere;
   }
 
   .pulsar-assistant-diff-line--path,
@@ -289,243 +347,5 @@
 
   .pulsar-assistant-diff-line--removed {
     color: @text-color-error;
-  }
-}
-
-// Completed-plan snapshot card appended to the conversation.
-.pulsar-assistant-plan-card {
-  border-left: 2px solid @background-color-info;
-  padding-left: @component-padding;
-  margin-bottom: @component-padding;
-}
-
-.pulsar-assistant-plan-card-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-weight: 600;
-  margin-bottom: 4px;
-
-  .icon::before {
-    margin-right: 0;
-  }
-}
-
-.pulsar-assistant-plan-card-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.pulsar-assistant-plan-card-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 2px 0;
-
-  &.is-completed .pulsar-assistant-plan-card-text {
-    color: @text-color-subtle;
-    text-decoration: line-through;
-  }
-
-  .icon::before {
-    margin-right: 0;
-  }
-}
-
-// Permission review card (new component layout).
-.pulsar-assistant-permission {
-  border: 1px solid @background-color-warning;
-  border-radius: @component-border-radius;
-  padding: (@component-padding / 2);
-  margin-bottom: @component-padding;
-
-  &[data-resolved] {
-    border-color: @pane-item-border-color;
-    opacity: 0.7;
-  }
-
-  .pulsar-assistant-permission-question {
-    font-weight: bold;
-    margin-bottom: 6px;
-  }
-
-  .pulsar-assistant-permission-header {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    margin-bottom: 6px;
-
-    .icon::before {
-      margin-right: 0;
-    }
-  }
-
-  .pulsar-assistant-permission-title {
-    flex: 1;
-    min-width: 0;
-    font-weight: 600;
-  }
-
-  .pulsar-assistant-tag {
-    flex-shrink: 0;
-    padding: 1px 5px;
-    border: 1px solid @pane-item-border-color;
-    border-radius: 1em;
-    color: @text-color-subtle;
-    font-size: 0.7em;
-    text-transform: uppercase;
-  }
-
-  .pulsar-assistant-permission-locations {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    margin-bottom: 6px;
-
-    .pulsar-assistant-permission-location,
-    pre {
-      margin: 0 0 4px;
-      padding: 4px 6px;
-      background-color: @base-background-color;
-      border-radius: @component-border-radius;
-      font-family: monospace;
-      white-space: pre-wrap;
-      word-break: break-all;
-
-      &:last-child {
-        margin-bottom: 0;
-      }
-    }
-
-    button.pulsar-assistant-permission-location {
-      display: block;
-      width: 100%;
-      border: none;
-      text-align: left;
-      color: inherit;
-      cursor: pointer;
-
-      &:hover {
-        text-decoration: underline;
-      }
-    }
-  }
-
-  .pulsar-assistant-permission-details,
-  .pulsar-assistant-permission-raw {
-    margin-bottom: 6px;
-    font-size: 0.85em;
-
-    summary {
-      cursor: pointer;
-      opacity: 0.7;
-      user-select: none;
-
-      &:hover {
-        opacity: 1;
-      }
-    }
-
-    pre {
-      margin: 4px 0 0;
-      padding: 4px 6px;
-      background-color: @base-background-color;
-      border-radius: @component-border-radius;
-      overflow-x: auto;
-      font-size: 0.9em;
-      white-space: pre-wrap;
-      word-break: break-all;
-    }
-  }
-
-  .pulsar-assistant-permission-content {
-    margin-bottom: 6px;
-    border-radius: @component-border-radius;
-    overflow: hidden;
-  }
-
-  .pulsar-assistant-permission-buttons,
-  .pulsar-assistant-permission-options {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-
-    .pulsar-assistant-reject {
-      opacity: 0.8;
-    }
-
-    .pulsar-assistant-allow-always {
-      font-weight: bold;
-    }
-  }
-
-  .pulsar-assistant-permission-settled {
-    display: block;
-    margin-top: 6px;
-    color: @text-color-subtle;
-    font-size: 0.9em;
-  }
-}
-
-// Authentication picker cards.
-.pulsar-assistant-auth {
-  border: 1px solid @background-color-info;
-  border-radius: @component-border-radius;
-  padding: (@component-padding / 2);
-  margin-bottom: @component-padding;
-
-  .pulsar-assistant-auth-question {
-    font-weight: bold;
-    margin-bottom: 6px;
-  }
-
-  .pulsar-assistant-auth-options {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-
-    .pulsar-assistant-reject {
-      opacity: 0.8;
-    }
-  }
-}
-
-.pulsar-assistant-auth-card {
-  border: 1px solid @background-color-info;
-  border-radius: @component-border-radius;
-  padding: (@component-padding / 2);
-  margin-bottom: @component-padding;
-
-  .pulsar-assistant-auth-header {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    margin-bottom: 6px;
-
-    .icon::before {
-      margin-right: 0;
-    }
-  }
-
-  .pulsar-assistant-auth-title {
-    font-weight: 600;
-  }
-
-  .pulsar-assistant-auth-desc {
-    margin-bottom: 6px;
-    color: @text-color-subtle;
-  }
-
-  .pulsar-assistant-auth-methods {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-  }
-
-  .pulsar-assistant-auth-settled {
-    display: block;
-    color: @text-color-subtle;
-    font-style: italic;
   }
 }

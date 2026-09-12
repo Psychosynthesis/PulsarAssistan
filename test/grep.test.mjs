@@ -1,90 +1,132 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import fs from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
+import * as path from "node:path";
 import {
-  globFiles,
-  globToRegExp,
+  findFiles,
   grepFiles,
   listDirectory,
-  matchGlob,
+  parseDslPattern,
+  makeExtensionsMatcher,
 } from "../lib/grep.js";
+import { ProjectFileTree } from "../lib/file-btree.js";
 
-test("matchGlob: **/*.ts matches nested TypeScript files", () => {
-  assert.equal(matchGlob("src/foo.ts", "**/*.ts"), true);
-  assert.equal(matchGlob("foo.ts", "**/*.ts"), true);
-  assert.equal(matchGlob("src/foo.js", "**/*.ts"), false);
+const projectRoot = path.resolve(new URL("..", import.meta.url).pathname.replace(/^\/([A-Z]:)/i, "$1"));
+
+test("parseDslPattern: matches wildcards and single char", () => {
+  const matcher = parseDslPattern("*.ts");
+  assert.equal(matcher("main.ts"), true);
+  assert.equal(matcher("main.js"), false);
+
+  const matcherQ = parseDslPattern("file?.ts");
+  assert.equal(matcherQ("file1.ts"), true);
+  assert.equal(matcherQ("file12.ts"), false);
 });
 
-test("matchGlob: *.ts matches by basename in nested folders", () => {
-  assert.equal(matchGlob("src/foo.ts", "*.ts"), true);
-  assert.equal(matchGlob("foo.ts", "*.ts"), true);
+test("parseDslPattern: handles logical OR (|) and AND (&)", () => {
+  const orMatcher = parseDslPattern("*.ts | *.tsx | *.js");
+  assert.equal(orMatcher("index.ts"), true);
+  assert.equal(orMatcher("index.tsx"), true);
+  assert.equal(orMatcher("index.js"), true);
+  assert.equal(orMatcher("index.css"), false);
+
+  const andMatcher = parseDslPattern("*test* & *.mjs");
+  assert.equal(andMatcher("grep.test.mjs"), true);
+  assert.equal(andMatcher("grep.mjs"), false);
+  assert.equal(andMatcher("test.js"), false);
+
+  const complexMatcher = parseDslPattern("*agent* & *.ts | *test* & *.mjs");
+  assert.equal(complexMatcher("agent-view.ts"), true);
+  assert.equal(complexMatcher("grep.test.mjs"), true);
+  assert.equal(complexMatcher("other.txt"), false);
 });
 
-test("globToRegExp: treats * as a single path segment", () => {
-  const re = globToRegExp("src/*.ts");
-  assert.equal(re.test("src/foo.ts"), true);
-  assert.equal(re.test("src/nested/foo.ts"), false);
+test("parseDslPattern: handles escaping", () => {
+  const escapedOr = parseDslPattern("foo\\|bar");
+  assert.equal(escapedOr("foo|bar"), true);
+  assert.equal(escapedOr("foo"), false);
+
+  const escapedAnd = parseDslPattern("foo\\&bar");
+  assert.equal(escapedAnd("foo&bar"), true);
+
+  const escapedStar = parseDslPattern("foo\\*bar");
+  assert.equal(escapedStar("foo*bar"), true);
+  assert.equal(escapedStar("fooxxxbar"), false);
 });
 
-test("grepFiles: finds a regex across the tree and skips node_modules", async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "acp-grep-"));
-  try {
-    await fs.mkdir(path.join(root, "src"));
-    await fs.mkdir(path.join(root, "node_modules", "pkg"), { recursive: true });
-    await fs.writeFile(path.join(root, "src", "a.ts"), "hello alpha\nkeep\n");
-    await fs.writeFile(path.join(root, "src", "b.ts"), "nope\n");
-    await fs.writeFile(
-      path.join(root, "node_modules", "pkg", "a.ts"),
-      "hello hidden\n",
-    );
-    const matches = await grepFiles({
-      cwd: root,
-      pattern: "alpha",
-    });
-    assert.equal(matches.length, 1);
-    assert.equal(matches[0].line, 1);
-    assert.match(matches[0].path, /a\.ts$/);
-    const oneFile = await grepFiles({
-      cwd: root,
-      pattern: "alpha",
-      searchPath: path.join("src", "a.ts"),
-    });
-    assert.equal(oneFile.length, 1);
-  } finally {
-    await fs.rm(root, { recursive: true, force: true });
-  }
+test("makeExtensionsMatcher: matches extensions case-insensitively when requested", () => {
+  const matcher = makeExtensionsMatcher(["ts", ".json"]);
+  assert.equal(matcher("package.json"), true);
+  assert.equal(matcher("main.ts"), true);
+  assert.equal(matcher("main.js"), false);
+
+  const ciMatcher = makeExtensionsMatcher(["TS"], true);
+  assert.equal(ciMatcher("main.ts"), true);
+  assert.equal(ciMatcher("MAIN.TS"), true);
 });
 
-test("grepFiles and globFiles: refuse paths outside the project", async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "acp-grep-"));
-  try {
-    await assert.rejects(() =>
-      grepFiles({ cwd: root, pattern: "x", searchPath: ".." }),
-    );
-    await assert.rejects(() =>
-      globFiles({ cwd: root, pattern: "**/*", searchPath: ".." }),
-    );
-  } finally {
-    await fs.rm(root, { recursive: true, force: true });
-  }
+test("findFiles: finds files using DSL pattern and extensions filter", async () => {
+  const matches = await findFiles({
+    cwd: projectRoot,
+    pattern: "*test* & *.mjs",
+  });
+  assert.ok(matches.length > 0);
+  assert.ok(matches.some((f) => f.endsWith("grep.test.mjs")));
+  assert.ok(!matches.some((f) => f.endsWith("package.json")));
 });
 
-test("globFiles and listDirectory: return project files", async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "acp-glob-"));
-  try {
-    await fs.mkdir(path.join(root, "src"));
-    await fs.writeFile(path.join(root, "src", "a.ts"), "");
-    await fs.writeFile(path.join(root, "readme.md"), "");
-    const files = await globFiles({ cwd: root, pattern: "**/*.ts" });
-    assert.equal(files.length, 1);
-    const listing = await listDirectory(root);
-    assert.deepEqual(
-      listing.map((entry) => entry.name).sort(),
-      ["readme.md", "src"],
-    );
-  } finally {
-    await fs.rm(root, { recursive: true, force: true });
-  }
+test("findFiles: leverages ProjectFileTree index", async () => {
+  const tree = new ProjectFileTree(projectRoot);
+  await tree.scanProject();
+
+  const matches = await findFiles({
+    cwd: projectRoot,
+    extensions: ["json"],
+    fileTree: tree,
+  });
+  assert.ok(matches.length > 0);
+  assert.ok(matches.some((f) => f.endsWith("package.json")));
+  assert.ok(!matches.some((f) => f.endsWith(".ts")));
+});
+
+test("grepFiles: literal search across files", async () => {
+  const matches = await grepFiles({
+    cwd: projectRoot,
+    query: "parseDslPattern",
+    searchPath: "src",
+  });
+  assert.ok(matches.length > 0);
+  assert.ok(matches.some((m) => m.path.endsWith("grep.ts")));
+  assert.ok(matches.every((m) => m.text.includes("parseDslPattern")));
+});
+
+test("grepFiles: leverages ProjectFileTree index", async () => {
+  const tree = new ProjectFileTree(projectRoot);
+  await tree.scanProject();
+
+  const matches = await grepFiles({
+    cwd: projectRoot,
+    query: "ProjectFileTree",
+    searchPath: "src",
+    fileTree: tree,
+  });
+  assert.ok(matches.length > 0);
+  assert.ok(matches.every((m) => m.text.includes("ProjectFileTree")));
+});
+
+test("findFiles and grepFiles: refuse paths outside the project", async () => {
+  await assert.rejects(
+    findFiles({ cwd: projectRoot, searchPath: "../" }),
+    /outside the project/,
+  );
+  await assert.rejects(
+    grepFiles({ cwd: projectRoot, query: "foo", searchPath: "C:\\Windows" }),
+    /outside the project/,
+  );
+});
+
+test("listDirectory: returns directory entries", async () => {
+  const entries = await listDirectory(projectRoot);
+  const names = new Set(entries.map((e) => e.name));
+  assert.ok(names.has("package.json"));
+  assert.ok(names.has("src"));
 });

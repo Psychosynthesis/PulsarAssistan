@@ -9,8 +9,6 @@ export type AgentType = "openai" | "acp";
 
 export interface Agent {
   name: string;
-  // Written to config: "openai" = HTTP API, "acp" = spawned CLI.
-  // Legacy `type: "command"` is accepted and stored as "acp".
   type?: AgentType;
   command?: string;
   baseUrl?: string;
@@ -18,7 +16,7 @@ export interface Agent {
   apiKeyEnv?: string;
   defaultModel?: string;
   model?: string;
-  getModelsUrl?: string;
+  modelsUrl?: string;
   stream?: boolean;
 }
 
@@ -142,15 +140,15 @@ function normalizeAgent(
   if (type === "acp" && agent.command) agent.command = agent.command.trim();
   if (type === "openai") {
     if (agent.baseUrl) agent.baseUrl = agent.baseUrl.trim().replace(/\/+$/, "");
-    const defaultModel = optionalString(entry.defaultModel);
+    const defaultModel = optionalString(agent.defaultModel);
     if (defaultModel) agent.defaultModel = defaultModel;
     else delete agent.defaultModel;
-    const model = optionalString(entry.model);
+    const model = optionalString(agent.model);
     if (model) agent.model = model;
     else delete agent.model;
-    const getModelsUrl = optionalString(entry.getModelsUrl);
-    if (getModelsUrl) agent.getModelsUrl = getModelsUrl;
-    else delete agent.getModelsUrl;
+    const modelsUrl = optionalString(agent.modelsUrl);
+    if (modelsUrl) agent.modelsUrl = modelsUrl;
+    else delete agent.modelsUrl;
   }
   return agent;
 }
@@ -288,6 +286,7 @@ export function toLaunchTarget(
         `API "${agent.name}" has no API key. Set apiKey or apiKeyEnv.`,
       );
     }
+    const modelsUrl = optionalString(agent.modelsUrl) ?? `${baseUrl}/models`;
     return {
       id,
       name: agent.name,
@@ -295,7 +294,7 @@ export function toLaunchTarget(
       baseUrl,
       apiKey,
       model: effectiveModel,
-      modelsUrl: optionalString(agent.getModelsUrl) ?? `${baseUrl}/models`,
+      modelsUrl,
       stream: agent.stream === true,
     };
   }
@@ -337,6 +336,7 @@ export function launchTargetsEqual(
       a.baseUrl === b.baseUrl &&
       a.model === b.model &&
       a.apiKey === b.apiKey &&
+      a.modelsUrl === b.modelsUrl &&
       a.stream === b.stream
     );
   }
@@ -350,4 +350,31 @@ export function isLaunchedAgentStale(
 ): boolean {
   if (!launchedSnapshotId) return false;
   return !config.agents[launchedSnapshotId];
+}
+
+export function quoteCommandLine(args: string[]): string {
+  return args
+    .map((arg) => {
+      if (arg.length === 0) return '""';
+      if (/[\s"']/.test(arg)) {
+        return `"${arg.replace(/"/g, '\\"')}"`;
+      }
+      return arg;
+    })
+    .join(" ");
+}
+
+export function patchCommandPath(
+  command: string,
+  oldPath: string,
+  newPath: string,
+): string {
+  const parsed = parseCommandLine(command);
+  if (parsed.length === 0) return command;
+  const target = path.resolve(oldPath);
+  const updated = parsed.map((token) => {
+    if (path.resolve(token) === target) return newPath;
+    return token;
+  });
+  return quoteCommandLine(updated);
 }

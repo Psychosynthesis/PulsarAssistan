@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-09-12
+
+- **Find Files Tool (`find_files`)**: Replaced deprecated `glob` with a fast `find_files` tool supporting a clean DSL (`*`, `?`, `|`, `&`, `\`), `extensions` filtering, case-insensitivity, and B-tree index acceleration.
+- **Literal Substring Grep**: Converted `grep` from regex walk to fast literal substring searching powered by the project B-tree index.
+- **Project Structure Tool (`get_file_structure`) & TSV Protocol**: Added dynamic file structure querying with depth control via a token-efficient TSV line protocol (`F\t<path>\tsize=<bytes>`).
+- **B-Tree Node Optimization**: Removed duplicate path storage in B-tree nodes and compacted `tree.json` serialization on disk.
+- **Git Command Security**: Blocked `--output` and `-o` globally across git commands to prevent unauthorized file writes.
+- **Rate Limit Delay (`toolCallDelayMs`)**: Wired tool call execution delays into `BuiltinAgent` with `AbortSignal` cancellation to prevent HTTP 429 rate limit errors.
+- **Assistant Payload Compaction**: `compactContext` now compresses bulky `write_file.content` and replacement text inside assistant tool call arguments.
+- **Chat Tool Header Layout**: Replaced cramped tool block headers with a flex layout separating title on the left and status on the right.
+- **Enhanced API Error Display**: Structured API errors into clear header badges with formatted JSON / detail text in an unobtrusive, scrollable code block.
+- **Send Button Unlocking**: Fixed issue where the Send button remained disabled after an agent turn until external state changes.
+- **Clean Configuration**: Removed legacy `getModelsUrl` aliases in favor of canonical `modelsUrl`.
+
 ## [0.5.3] - 2026-09-12
 
 - **Targeted File Edits**: `write_file` now accepts either full-file `content` or a targeted `searchText`/`replaceText` replacement pair.

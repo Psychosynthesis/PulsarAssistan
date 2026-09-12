@@ -1,23 +1,25 @@
 import * as fs from "fs";
 import * as path from "path";
-import { randomBytes } from "crypto";
+import {
+  buildIgnoredDirsSet,
+  getConfiguredIgnoredDirs,
+} from "./ignored-dirs";
 
-import { buildIgnoredDirsSet, getConfiguredIgnoredDirs } from "./ignored-dirs";
-
-export interface FileMetadata {
-  path: string; // Relative POSIX path from projectRoot, e.g. "src/main.ts"
+export interface FileEntryInfo {
   size: number;
   mtime: number;
   isDirectory: boolean;
 }
 
-export const DEFAULT_PROJECT_SKIP_DIRS: Set<string> = buildIgnoredDirsSet();
+export interface FileMetadata extends FileEntryInfo {
+  path: string; // posix-style relative path from project root
+}
 
 export interface SerializedBTreeNode<V> {
+  leaf: boolean;
   keys: string[];
   values: V[];
-  isLeaf: boolean;
-  children: SerializedBTreeNode<V>[];
+  children?: SerializedBTreeNode<V>[];
 }
 
 export interface SerializedProjectFileTree {
@@ -26,45 +28,70 @@ export interface SerializedProjectFileTree {
   updatedAt: number;
   fileCount: number;
   t: number;
-  root: SerializedBTreeNode<FileMetadata>;
+  root: SerializedBTreeNode<FileEntryInfo>;
+}
+
+export const DEFAULT_PROJECT_SKIP_DIRS: Set<string> = buildIgnoredDirsSet();
+
+export function toPosixPath(relPath: string): string {
+  return relPath.split(path.sep).join("/");
 }
 
 export class BTreeNode<V> {
-  keys: string[] = [];
-  values: V[] = [];
-  children: BTreeNode<V>[] = [];
-  isLeaf: boolean = true;
+  leaf: boolean;
+  keys: string[];
+  values: V[];
+  children: BTreeNode<V>[];
 
-  constructor(isLeaf = true) {
-    this.isLeaf = isLeaf;
+  constructor(leaf = true) {
+    this.leaf = leaf;
+    this.keys = [];
+    this.values = [];
+    this.children = [];
   }
 
   toJSON(): SerializedBTreeNode<V> {
-    return {
+    const out: SerializedBTreeNode<V> = {
+      leaf: this.leaf,
       keys: this.keys,
       values: this.values,
-      isLeaf: this.isLeaf,
-      children: this.children.map((c) => c.toJSON()),
     };
+    if (!this.leaf && this.children.length > 0) {
+      out.children = this.children.map((c) => c.toJSON());
+    }
+    return out;
   }
 
   static fromJSON<V>(json: SerializedBTreeNode<V>): BTreeNode<V> {
-    const node = new BTreeNode<V>(json.isLeaf);
+    const node = new BTreeNode<V>(json.leaf);
     node.keys = [...json.keys];
-    node.values = [...json.values];
-    node.children = (json.children || []).map((c) => BTreeNode.fromJSON<V>(c));
+    node.values = json.values.map((v) => {
+      if (v && typeof v === "object" && "path" in v) {
+        const { path: _p, ...rest } = v as Record<string, unknown>;
+        return rest as unknown as V;
+      }
+      return v;
+    });
+    if (json.children) {
+      node.children = json.children.map((c) => BTreeNode.fromJSON<V>(c));
+    }
     return node;
   }
 }
 
 export class BTree<V> {
-  readonly t: number; // Minimum degree (t >= 2)
+  t: number;
   root: BTreeNode<V>;
+  private _size = 0;
 
-  constructor(t = 16) {
-    if (t < 2) throw new Error("B-tree degree t must be >= 2");
-    this.t = t;
+  constructor(degree = 16) {
+    if (degree < 2) throw new Error("Degree t must be >= 2");
+    this.t = degree;
     this.root = new BTreeNode<V>(true);
+  }
+
+  size(): number {
+    return this._size;
   }
 
   search(key: string): V | null {
@@ -79,68 +106,50 @@ export class BTree<V> {
     if (i < node.keys.length && key === node.keys[i]) {
       return node.values[i];
     }
-    if (node.isLeaf) {
+    if (node.leaf) {
       return null;
     }
     return this._searchNode(node.children[i], key);
   }
 
   insert(key: string, value: V): void {
-    const root = this.root;
-    if (this._updateIfExists(root, key, value)) {
+    const existing = this.search(key);
+    if (existing !== null) {
+      this._updateNode(this.root, key, value);
       return;
     }
 
-    if (root.keys.length === 2 * this.t - 1) {
+    const r = this.root;
+    if (r.keys.length === 2 * this.t - 1) {
       const s = new BTreeNode<V>(false);
       this.root = s;
-      s.children.push(root);
-      this._splitChild(s, 0);
+      s.children.push(r);
+      this._splitChild(s, 0, r);
       this._insertNonFull(s, key, value);
     } else {
-      this._insertNonFull(root, key, value);
+      this._insertNonFull(r, key, value);
     }
+    this._size++;
   }
 
-  private _updateIfExists(node: BTreeNode<V>, key: string, value: V): boolean {
+  private _updateNode(node: BTreeNode<V>, key: string, value: V): void {
     let i = 0;
     while (i < node.keys.length && key > node.keys[i]) {
       i++;
     }
     if (i < node.keys.length && key === node.keys[i]) {
       node.values[i] = value;
-      return true;
+      return;
     }
-    if (node.isLeaf) return false;
-    return this._updateIfExists(node.children[i], key, value);
-  }
-
-  private _splitChild(parent: BTreeNode<V>, index: number): void {
-    const t = this.t;
-    const y = parent.children[index];
-    const z = new BTreeNode<V>(y.isLeaf);
-
-    const midKey = y.keys[t - 1];
-    const midVal = y.values[t - 1];
-
-    z.keys = y.keys.splice(t);
-    z.values = y.values.splice(t);
-
-    y.keys.pop();
-    y.values.pop();
-
-    if (!y.isLeaf) {
-      z.children = y.children.splice(t);
+    if (!node.leaf) {
+      this._updateNode(node.children[i], key, value);
     }
-
-    parent.children.splice(index + 1, 0, z);
-    parent.keys.splice(index, 0, midKey);
-    parent.values.splice(index, 0, midVal);
   }
 
   private _insertNonFull(node: BTreeNode<V>, key: string, value: V): void {
     let i = node.keys.length - 1;
-    if (node.isLeaf) {
+
+    if (node.leaf) {
       while (i >= 0 && key < node.keys[i]) {
         i--;
       }
@@ -152,7 +161,7 @@ export class BTree<V> {
       }
       i++;
       if (node.children[i].keys.length === 2 * this.t - 1) {
-        this._splitChild(node, i);
+        this._splitChild(node, i, node.children[i]);
         if (key > node.keys[i]) {
           i++;
         }
@@ -161,10 +170,32 @@ export class BTree<V> {
     }
   }
 
+  private _splitChild(parent: BTreeNode<V>, i: number, child: BTreeNode<V>): void {
+    const t = this.t;
+    const z = new BTreeNode<V>(child.leaf);
+
+    z.keys = child.keys.splice(t);
+    z.values = child.values.splice(t);
+
+    const midKey = child.keys.pop()!;
+    const midVal = child.values.pop()!;
+
+    if (!child.leaf) {
+      z.children = child.children.splice(t);
+    }
+
+    parent.children.splice(i + 1, 0, z);
+    parent.keys.splice(i, 0, midKey);
+    parent.values.splice(i, 0, midVal);
+  }
+
   delete(key: string): boolean {
     const deleted = this._deleteNode(this.root, key);
-    if (this.root.keys.length === 0 && !this.root.isLeaf) {
-      this.root = this.root.children[0];
+    if (deleted) {
+      this._size--;
+      if (this.root.keys.length === 0 && !this.root.leaf) {
+        this.root = this.root.children[0];
+      }
     }
     return deleted;
   }
@@ -172,34 +203,20 @@ export class BTree<V> {
   private _deleteNode(node: BTreeNode<V>, key: string): boolean {
     const t = this.t;
     let idx = 0;
-    while (idx < node.keys.length && key > node.keys[idx]) {
+    while (idx < node.keys.length && node.keys[idx] < key) {
       idx++;
     }
 
-    if (idx < node.keys.length && key === node.keys[idx]) {
-      if (node.isLeaf) {
+    if (idx < node.keys.length && node.keys[idx] === key) {
+      if (node.leaf) {
         node.keys.splice(idx, 1);
         node.values.splice(idx, 1);
         return true;
       }
-
-      if (node.children[idx].keys.length >= t) {
-        const pred = this._getPredecessor(node.children[idx]);
-        node.keys[idx] = pred.key;
-        node.values[idx] = pred.value;
-        return this._deleteNode(node.children[idx], pred.key);
-      } else if (node.children[idx + 1].keys.length >= t) {
-        const succ = this._getSuccessor(node.children[idx + 1]);
-        node.keys[idx] = succ.key;
-        node.values[idx] = succ.value;
-        return this._deleteNode(node.children[idx + 1], succ.key);
-      } else {
-        this._merge(node, idx);
-        return this._deleteNode(node.children[idx], key);
-      }
+      return this._deleteInternalNode(node, idx);
     }
 
-    if (node.isLeaf) {
+    if (node.leaf) {
       return false;
     }
 
@@ -210,30 +227,48 @@ export class BTree<V> {
 
     if (isLastChild && idx > node.keys.length) {
       return this._deleteNode(node.children[idx - 1], key);
+    } else {
+      return this._deleteNode(node.children[idx], key);
     }
-    return this._deleteNode(node.children[idx], key);
   }
 
-  private _getPredecessor(node: BTreeNode<V>): { key: string; value: V } {
-    let curr = node;
-    while (!curr.isLeaf) {
+  private _deleteInternalNode(node: BTreeNode<V>, idx: number): boolean {
+    const k = node.keys[idx];
+    const t = this.t;
+
+    if (node.children[idx].keys.length >= t) {
+      const { key: predKey, val: predVal } = this._getPred(node, idx);
+      node.keys[idx] = predKey;
+      node.values[idx] = predVal;
+      return this._deleteNode(node.children[idx], predKey);
+    } else if (node.children[idx + 1].keys.length >= t) {
+      const { key: succKey, val: succVal } = this._getSucc(node, idx);
+      node.keys[idx] = succKey;
+      node.values[idx] = succVal;
+      return this._deleteNode(node.children[idx + 1], succKey);
+    } else {
+      this._merge(node, idx);
+      return this._deleteNode(node.children[idx], k);
+    }
+  }
+
+  private _getPred(node: BTreeNode<V>, idx: number): { key: string; val: V } {
+    let curr = node.children[idx];
+    while (!curr.leaf) {
       curr = curr.children[curr.children.length - 1];
     }
     return {
       key: curr.keys[curr.keys.length - 1],
-      value: curr.values[curr.values.length - 1],
+      val: curr.values[curr.values.length - 1],
     };
   }
 
-  private _getSuccessor(node: BTreeNode<V>): { key: string; value: V } {
-    let curr = node;
-    while (!curr.isLeaf) {
+  private _getSucc(node: BTreeNode<V>, idx: number): { key: string; val: V } {
+    let curr = node.children[idx + 1];
+    while (!curr.leaf) {
       curr = curr.children[0];
     }
-    return {
-      key: curr.keys[0],
-      value: curr.values[0],
-    };
+    return { key: curr.keys[0], val: curr.values[0] };
   }
 
   private _fill(node: BTreeNode<V>, idx: number): void {
@@ -258,7 +293,7 @@ export class BTree<V> {
     child.keys.unshift(node.keys[idx - 1]);
     child.values.unshift(node.values[idx - 1]);
 
-    if (!child.isLeaf) {
+    if (!child.leaf) {
       child.children.unshift(sibling.children.pop()!);
     }
 
@@ -273,7 +308,7 @@ export class BTree<V> {
     child.keys.push(node.keys[idx]);
     child.values.push(node.values[idx]);
 
-    if (!child.isLeaf) {
+    if (!child.leaf) {
       child.children.push(sibling.children.shift()!);
     }
 
@@ -291,7 +326,7 @@ export class BTree<V> {
     child.keys.push(...sibling.keys);
     child.values.push(...sibling.values);
 
-    if (!child.isLeaf) {
+    if (!child.leaf) {
       child.children.push(...sibling.children);
     }
 
@@ -300,170 +335,205 @@ export class BTree<V> {
     node.children.splice(idx + 1, 1);
   }
 
-  entries(): Array<{ key: string; value: V }> {
-    const result: Array<{ key: string; value: V }> = [];
-    this._traverseInOrder(this.root, (key, value) => {
-      result.push({ key, value });
-    });
-    return result;
-  }
-
   keys(): string[] {
-    const result: string[] = [];
-    this._traverseInOrder(this.root, (key) => {
-      result.push(key);
-    });
-    return result;
+    const res: string[] = [];
+    this._traverseKeys(this.root, res);
+    return res;
   }
 
-  values(): V[] {
-    const result: V[] = [];
-    this._traverseInOrder(this.root, (_, value) => {
-      result.push(value);
-    });
-    return result;
+  private _traverseKeys(node: BTreeNode<V>, res: string[]): void {
+    for (let i = 0; i < node.keys.length; i++) {
+      if (!node.leaf) {
+        this._traverseKeys(node.children[i], res);
+      }
+      res.push(node.keys[i]);
+    }
+    if (!node.leaf) {
+      this._traverseKeys(node.children[node.keys.length], res);
+    }
   }
 
-  size(): number {
-    let count = 0;
-    this._traverseInOrder(this.root, () => {
-      count++;
-    });
-    return count;
+  entries(): Array<{ key: string; value: V }> {
+    const res: Array<{ key: string; value: V }> = [];
+    this._traverseEntries(this.root, res);
+    return res;
+  }
+
+  private _traverseEntries(node: BTreeNode<V>, res: Array<{ key: string; value: V }>): void {
+    for (let i = 0; i < node.keys.length; i++) {
+      if (!node.leaf) {
+        this._traverseEntries(node.children[i], res);
+      }
+      res.push({ key: node.keys[i], value: node.values[i] });
+    }
+    if (!node.leaf) {
+      this._traverseEntries(node.children[node.keys.length], res);
+    }
   }
 
   prefixSearch(prefix: string): Array<{ key: string; value: V }> {
-    const result: Array<{ key: string; value: V }> = [];
-    this._traverseInOrder(this.root, (key, value) => {
-      if (key.startsWith(prefix)) {
-        result.push({ key, value });
-      }
-    });
-    return result;
+    const res: Array<{ key: string; value: V }> = [];
+    this._prefixSearchNode(this.root, prefix, res);
+    return res;
   }
 
-  private _traverseInOrder(
+  private _prefixSearchNode(
     node: BTreeNode<V>,
-    callback: (key: string, value: V) => void,
+    prefix: string,
+    res: Array<{ key: string; value: V }>,
   ): void {
     for (let i = 0; i < node.keys.length; i++) {
-      if (!node.isLeaf) {
-        this._traverseInOrder(node.children[i], callback);
+      const k = node.keys[i];
+      if (!node.leaf && k >= prefix) {
+        this._prefixSearchNode(node.children[i], prefix, res);
       }
-      callback(node.keys[i], node.values[i]);
+      if (k.startsWith(prefix)) {
+        res.push({ key: k, value: node.values[i] });
+      }
     }
-    if (!node.isLeaf) {
-      this._traverseInOrder(node.children[node.keys.length], callback);
+    if (!node.leaf) {
+      this._prefixSearchNode(node.children[node.keys.length], prefix, res);
     }
   }
-}
 
-export function toPosixPath(p: string): string {
-  return p.replace(/\\/g, "/");
+  recalculateSize(): number {
+    let count = 0;
+    const walk = (node: BTreeNode<V>) => {
+      count += node.keys.length;
+      if (!node.leaf) {
+        for (const child of node.children) {
+          walk(child);
+        }
+      }
+    };
+    walk(this.root);
+    this._size = count;
+    return count;
+  }
 }
 
 export class ProjectFileTree {
-  private tree: BTree<FileMetadata>;
-  readonly projectRoot: string;
-  private updatedAt: number;
-  private saveTimer: NodeJS.Timeout | null = null;
-  private savePromise: Promise<void> | null = null;
+  projectRoot: string;
+  updatedAt: number;
+  private tree: BTree<FileEntryInfo>;
 
-  constructor(projectRoot: string, t = 16) {
+  constructor(projectRoot: string, degree = 16) {
     this.projectRoot = path.resolve(projectRoot);
-    this.tree = new BTree<FileMetadata>(t);
     this.updatedAt = Date.now();
+    this.tree = new BTree<FileEntryInfo>(degree);
   }
 
   get size(): number {
     return this.tree.size();
   }
 
-  get lastUpdated(): number {
-    return this.updatedAt;
+  get degree(): number {
+    return this.tree.t;
   }
 
-  get(relPath: string): FileMetadata | null {
-    const key = toPosixPath(relPath).replace(/^\.?\//, "");
-    return this.tree.search(key);
+  has(posixRelPath: string): boolean {
+    return this.tree.search(posixRelPath) !== null;
   }
 
-  has(relPath: string): boolean {
-    return this.get(relPath) !== null;
+  get(posixRelPath: string): FileMetadata | null {
+    const val = this.tree.search(posixRelPath);
+    if (!val) return null;
+    return {
+      path: posixRelPath,
+      size: val.size,
+      mtime: val.mtime,
+      isDirectory: val.isDirectory,
+    };
   }
 
-  set(relPath: string, meta: FileMetadata): void {
-    const key = toPosixPath(relPath).replace(/^\.?\//, "");
-    this.tree.insert(key, { ...meta, path: key });
+  set(posixRelPath: string, meta: FileMetadata | FileEntryInfo): void {
+    this.tree.insert(posixRelPath, {
+      size: meta.size,
+      mtime: meta.mtime,
+      isDirectory: meta.isDirectory,
+    });
     this.updatedAt = Date.now();
   }
 
-  remove(relPath: string): boolean {
-    const key = toPosixPath(relPath).replace(/^\.?\//, "");
-    const deleted = this.tree.delete(key);
-    if (deleted) this.updatedAt = Date.now();
-    return deleted;
-  }
-
-  listAll(): FileMetadata[] {
-    return this.tree.values();
+  remove(posixRelPath: string): boolean {
+    const res = this.tree.delete(posixRelPath);
+    if (res) this.updatedAt = Date.now();
+    return res;
   }
 
   listPaths(): string[] {
     return this.tree.keys();
   }
 
+  listAll(): FileMetadata[] {
+    return this.tree.entries().map((e) => ({
+      path: e.key,
+      size: e.value.size,
+      mtime: e.value.mtime,
+      isDirectory: e.value.isDirectory,
+    }));
+  }
+
   findInDirectory(subDir: string): FileMetadata[] {
-    const normalized = toPosixPath(subDir).replace(/^\.?\//, "").replace(/\/$/, "");
-    const prefix = normalized ? `${normalized}/` : "";
-    return this.tree.prefixSearch(prefix).map((entry) => entry.value);
+    let normalized = toPosixPath(subDir).replace(/^\.\/?/, "");
+    if (normalized && !normalized.endsWith("/")) {
+      normalized += "/";
+    }
+    const entries = this.tree.prefixSearch(normalized);
+    return entries.map((e) => ({
+      path: e.key,
+      size: e.value.size,
+      mtime: e.value.mtime,
+      isDirectory: e.value.isDirectory,
+    }));
   }
 
   async scanProject(skipDirs: Set<string> = getConfiguredIgnoredDirs()): Promise<void> {
-    const newTree = new BTree<FileMetadata>(this.tree.t);
+    const newTree = new BTree<FileEntryInfo>(this.tree.t);
 
-    const walk = async (currentDir: string): Promise<void> => {
+    const stack: Array<{ dir: string; relative: string }> = [
+      { dir: this.projectRoot, relative: "" },
+    ];
+
+    while (stack.length > 0) {
+      const current = stack.pop();
+      if (!current) break;
+
       let entries: fs.Dirent[];
       try {
-        entries = await fs.promises.readdir(currentDir, { withFileTypes: true });
+        entries = await fs.promises.readdir(current.dir, { withFileTypes: true });
       } catch {
-        return;
+        continue;
       }
 
       for (const entry of entries) {
-        const name = entry.name;
-        if (skipDirs.has(name)) continue;
-        if (name.startsWith(".") && name !== ".github" && name !== ".gitignore") {
+        if (skipDirs.has(entry.name)) continue;
+
+        const relPath = current.relative
+          ? `${current.relative}/${entry.name}`
+          : entry.name;
+        const fullPath = path.join(current.dir, entry.name);
+
+        if (entry.isDirectory()) {
+          stack.push({ dir: fullPath, relative: relPath });
           continue;
         }
 
-        const fullPath = path.join(currentDir, name);
-        const relPath = toPosixPath(path.relative(this.projectRoot, fullPath));
-
-        if (entry.isDirectory()) {
-          newTree.insert(relPath, {
-            path: relPath,
-            size: 0,
-            mtime: 0,
-            isDirectory: true,
-          });
-          await walk(fullPath);
-        } else if (entry.isFile()) {
-          let stat: fs.Stats | null = null;
+        if (entry.isFile()) {
           try {
-            stat = await fs.promises.stat(fullPath);
-          } catch {}
-          newTree.insert(relPath, {
-            path: relPath,
-            size: stat?.size ?? 0,
-            mtime: stat?.mtimeMs ?? 0,
-            isDirectory: false,
-          });
+            const stat = await fs.promises.stat(fullPath);
+            newTree.insert(relPath, {
+              size: stat.size,
+              mtime: stat.mtimeMs,
+              isDirectory: false,
+            });
+          } catch {
+            // Ignore stat errors for inaccessible files
+          }
         }
       }
-    };
+    }
 
-    await walk(this.projectRoot);
     this.tree = newTree;
     this.updatedAt = Date.now();
   }
@@ -477,7 +547,6 @@ export class ProjectFileTree {
     try {
       const stat = await fs.promises.stat(fullPath);
       this.set(relPath, {
-        path: relPath,
         size: stat.size,
         mtime: stat.mtimeMs,
         isDirectory: stat.isDirectory(),
@@ -489,13 +558,49 @@ export class ProjectFileTree {
     }
   }
 
-  toHierarchyText(maxFiles = 200): string {
-    const files = this.listPaths();
-    if (files.length === 0) return "(empty project)";
-    const slice = files.slice(0, maxFiles);
-    const lines = slice.map((f) => `- ${f}`);
-    if (files.length > maxFiles) {
-      lines.push(`... and ${files.length - maxFiles} more files`);
+  toHierarchyText(maxLines = 300, startPath = ".", maxDepth = 5): string {
+    const all = this.listAll();
+    if (all.length === 0) return "(empty project)";
+
+    const normalizedStart = startPath
+      ? toPosixPath(startPath).replace(/^\.\/?/, "").replace(/\/+$/, "")
+      : "";
+    const lines: string[] = [];
+    let omitted = 0;
+
+    for (const entry of all) {
+      if (entry.isDirectory) continue;
+      const rel = entry.path;
+      if (normalizedStart) {
+        if (rel === normalizedStart) {
+          // exact match
+        } else if (rel.startsWith(normalizedStart + "/")) {
+          // inside startPath
+        } else {
+          continue;
+        }
+      }
+
+      const depthPath =
+        normalizedStart && rel.startsWith(normalizedStart + "/")
+          ? rel.slice(normalizedStart.length + 1)
+          : rel;
+      const segments = depthPath.split("/").filter(Boolean);
+      if (segments.length > maxDepth) {
+        continue;
+      }
+
+      if (lines.length >= maxLines) {
+        omitted++;
+        continue;
+      }
+
+      lines.push(`F\t${entry.path}\tsize=${entry.size}`);
+    }
+
+    if (lines.length === 0) return "(empty)";
+    if (omitted > 0) {
+      lines.push(`... [${omitted} more entries omitted]`);
     }
     return lines.join("\n");
   }
@@ -514,47 +619,26 @@ export class ProjectFileTree {
   static fromJSON(json: SerializedProjectFileTree): ProjectFileTree {
     const tree = new ProjectFileTree(json.projectRoot, json.t || 16);
     tree.updatedAt = json.updatedAt;
-    tree.tree.root = BTreeNode.fromJSON<FileMetadata>(json.root);
+    tree.tree.root = BTreeNode.fromJSON<FileEntryInfo>(json.root);
+    tree.tree.recalculateSize();
     return tree;
   }
 
   async saveToFile(filePath: string): Promise<void> {
-    const json = JSON.stringify(this.toJSON(), null, 2);
-    const tmpPath = `${filePath}.${randomBytes(6).toString("hex")}.tmp`;
-    await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
-    await fs.promises.writeFile(tmpPath, json, "utf8");
-    await fs.promises.rename(tmpPath, filePath);
+    const dir = path.dirname(filePath);
+    await fs.promises.mkdir(dir, { recursive: true });
+    const data = JSON.stringify(this.toJSON());
+    await fs.promises.writeFile(filePath, data, "utf8");
   }
 
   static async loadFromFile(filePath: string): Promise<ProjectFileTree | null> {
     try {
-      const data = await fs.promises.readFile(filePath, "utf8");
-      const json = JSON.parse(data) as SerializedProjectFileTree;
-      if (json.version !== 1) return null;
-      return ProjectFileTree.fromJSON(json);
+      const raw = await fs.promises.readFile(filePath, "utf8");
+      const parsed = JSON.parse(raw) as SerializedProjectFileTree;
+      if (!parsed || parsed.version !== 1) return null;
+      return ProjectFileTree.fromJSON(parsed);
     } catch {
       return null;
     }
-  }
-
-  scheduleSave(filePath: string, debounceMs = 2500): Promise<void> {
-    if (this.saveTimer) {
-      clearTimeout(this.saveTimer);
-    }
-    if (!this.savePromise) {
-      this.savePromise = new Promise<void>((resolve, reject) => {
-        this.saveTimer = setTimeout(async () => {
-          this.saveTimer = null;
-          this.savePromise = null;
-          try {
-            await this.saveToFile(filePath);
-            resolve();
-          } catch (err) {
-            reject(err);
-          }
-        }, debounceMs);
-      });
-    }
-    return this.savePromise;
   }
 }

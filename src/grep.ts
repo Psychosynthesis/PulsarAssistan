@@ -5,12 +5,13 @@ import {
   buildIgnoredDirsSet,
   getConfiguredIgnoredDirs,
 } from "./ignored-dirs";
+import type { ProjectFileTree } from "./file-btree";
 
 export const DEFAULT_SKIP_DIRS: Set<string> = buildIgnoredDirsSet();
 
 export const DEFAULT_MAX_FILE_BYTES = 1 * 1024 * 1024;
-export const DEFAULT_MAX_RESULTS = 50;
-export const HARD_MAX_RESULTS = 200;
+export const DEFAULT_MAX_RESULTS = 100;
+export const HARD_MAX_RESULTS = 500;
 
 export type GrepMatch = {
   path: string;
@@ -19,22 +20,25 @@ export type GrepMatch = {
 };
 
 export type GrepOptions = {
-  pattern: string;
+  query: string;
   cwd: string;
   searchPath?: string;
-  glob?: string;
   caseInsensitive?: boolean;
   maxResults?: number;
   maxFileBytes?: number;
   skipDirs?: Set<string>;
+  fileTree?: ProjectFileTree | null;
 };
 
-export type GlobOptions = {
-  pattern: string;
+export type FindFilesOptions = {
   cwd: string;
   searchPath?: string;
+  pattern?: string;
+  extensions?: string[];
+  caseInsensitive?: boolean;
   maxResults?: number;
   skipDirs?: Set<string>;
+  fileTree?: ProjectFileTree | null;
 };
 
 export type ListDirEntry = {
@@ -42,51 +46,124 @@ export type ListDirEntry = {
   type: "file" | "directory" | "other";
 };
 
-function toPosix(relativePath: string): string {
-  return relativePath.split(path.sep).join("/");
-}
-
-// Convert a glob (`*`, `**`, `?`) to a regex. `*` does not cross `/`; `**`
-// matches across directories. The pattern is matched against a posix-relative
-// path from the search root.
-export function globToRegExp(pattern: string): RegExp {
-  let source = "^";
-  const normalized = pattern.replace(/\\/g, "/");
-  for (let i = 0; i < normalized.length; i++) {
-    const char = normalized[i];
-    if (char === "*") {
-      if (normalized[i + 1] === "*") {
-        const after = normalized[i + 2];
-        if (after === "/" || after === undefined) {
-          source += ".*";
-          i += after === "/" ? 2 : 1;
-          continue;
-        }
+function splitUnescaped(input: string, delimiter: string): string[] {
+  const parts: string[] = [];
+  let current = "";
+  for (let i = 0; i < input.length; i++) {
+    const ch = input[i];
+    if (ch === "\\") {
+      current += ch;
+      if (i + 1 < input.length) {
+        current += input[i + 1];
+        i++;
       }
-      source += "[^/]*";
       continue;
     }
-    if (char === "?") {
-      source += "[^/]";
+    if (ch === delimiter) {
+      parts.push(current.trim());
+      current = "";
       continue;
     }
-    if ("\\^$+{}()|[]".includes(char)) source += `\\${char}`;
-    else source += char;
+    current += ch;
   }
-  source += "$";
-  return new RegExp(source);
+  parts.push(current.trim());
+  return parts;
 }
 
-export function matchGlob(relativePath: string, pattern: string): boolean {
-  const posix = toPosix(relativePath);
-  const regexp = globToRegExp(pattern);
-  if (regexp.test(posix)) return true;
-  // `*.ts` should also match `src/foo.ts` when the pattern has no slash —
-  // that's how ripgrep --glob behaves for a basename filter.
-  if (!pattern.includes("/") && !pattern.includes("**")) {
-    return regexp.test(path.posix.basename(posix));
+function atomToRegExp(atom: string, caseInsensitive: boolean): RegExp {
+  let regexStr = "^";
+  let i = 0;
+  while (i < atom.length) {
+    const ch = atom[i];
+    if (ch === "\\") {
+      if (i + 1 < atom.length) {
+        const next = atom[i + 1];
+        if ("\\^$+{}()|[]*?.#".includes(next)) {
+          regexStr += `\\${next}`;
+        } else {
+          regexStr += next;
+        }
+        i += 2;
+        continue;
+      } else {
+        regexStr += "\\\\";
+        i++;
+        continue;
+      }
+    }
+    if (ch === "*") {
+      regexStr += ".*";
+      i++;
+      continue;
+    }
+    if (ch === "?") {
+      regexStr += ".";
+      i++;
+      continue;
+    }
+    if ("\\^$+{}()|[]*.#".includes(ch)) {
+      regexStr += `\\${ch}`;
+    } else {
+      regexStr += ch;
+    }
+    i++;
   }
-  return false;
+  regexStr += "$";
+  return new RegExp(regexStr, caseInsensitive ? "i" : "");
+}
+
+export type DslMatcher = (basename: string) => boolean;
+
+export function parseDslPattern(
+  pattern?: string,
+  caseInsensitive = false,
+): DslMatcher {
+  if (!pattern || !pattern.trim()) {
+    return () => true;
+  }
+  const orBranches = splitUnescaped(pattern, "|").filter((s) => s.length > 0);
+  if (orBranches.length === 0) {
+    return () => true;
+  }
+  const compiledOrBranches: RegExp[][] = orBranches.map((branch) => {
+    const andTerms = splitUnescaped(branch, "&").filter((s) => s.length > 0);
+    return andTerms.map((term) => atomToRegExp(term, caseInsensitive));
+  });
+
+  return (basename: string) => {
+    return compiledOrBranches.some((andTerms) =>
+      andTerms.every((regex) => regex.test(basename)),
+    );
+  };
+}
+
+export function makeExtensionsMatcher(
+  extensions?: string[],
+  caseInsensitive = false,
+): (basename: string) => boolean {
+  if (!extensions || extensions.length === 0) {
+    return () => true;
+  }
+  const normalized = extensions
+    .map((ext) => {
+      const trimmed = ext.trim().replace(/^\./, "");
+      return caseInsensitive ? trimmed.toLowerCase() : trimmed;
+    })
+    .filter(Boolean);
+
+  if (normalized.length === 0) return () => true;
+
+  const set = new Set(normalized);
+  return (basename: string) => {
+    const ext = path.extname(basename).replace(/^\./, "");
+    const target = caseInsensitive ? ext.toLowerCase() : ext;
+    return set.has(target);
+  };
+}
+
+function looksBinary(buffer: Buffer): boolean {
+  const sample = buffer.subarray(0, Math.min(buffer.length, 8192));
+  return sample.includes(0);
 }
 
 async function walkFiles(
@@ -124,13 +201,43 @@ async function walkFiles(
   }
 }
 
-function compilePattern(pattern: string, caseInsensitive: boolean): RegExp {
-  return new RegExp(pattern, caseInsensitive ? "gi" : "g");
-}
+export async function findFiles(options: FindFilesOptions): Promise<string[]> {
+  const cwd = path.resolve(options.cwd);
+  const searchRoot = resolveInsideRoot(cwd, options.searchPath ?? ".");
+  const skipDirs = options.skipDirs ?? getConfiguredIgnoredDirs();
+  const maxResults = Math.max(
+    1,
+    Math.min(options.maxResults ?? DEFAULT_MAX_RESULTS, HARD_MAX_RESULTS),
+  );
+  const dslMatcher = parseDslPattern(options.pattern, options.caseInsensitive === true);
+  const extMatcher = makeExtensionsMatcher(options.extensions, options.caseInsensitive === true);
+  const matches: string[] = [];
 
-function looksBinary(buffer: Buffer): boolean {
-  const sample = buffer.subarray(0, Math.min(buffer.length, 8192));
-  return sample.includes(0);
+  const searchRel = path.relative(cwd, searchRoot).replace(/\\/g, "/");
+
+  if (options.fileTree && options.fileTree.size > 0) {
+    const all = searchRel === "" || searchRel === "."
+      ? options.fileTree.listAll()
+      : options.fileTree.findInDirectory(searchRel);
+
+    for (const item of all) {
+      if (item.isDirectory) continue;
+      const basename = path.posix.basename(item.path);
+      if (dslMatcher(basename) && extMatcher(basename)) {
+        matches.push(path.resolve(cwd, item.path));
+        if (matches.length >= maxResults) break;
+      }
+    }
+    return matches;
+  }
+
+  await walkFiles(searchRoot, skipDirs, async (absolutePath) => {
+    const basename = path.basename(absolutePath);
+    if (!dslMatcher(basename) || !extMatcher(basename)) return;
+    matches.push(absolutePath);
+    if (matches.length >= maxResults) return false;
+  });
+  return matches;
 }
 
 export async function grepFiles(options: GrepOptions): Promise<GrepMatch[]> {
@@ -142,8 +249,12 @@ export async function grepFiles(options: GrepOptions): Promise<GrepMatch[]> {
     Math.min(options.maxResults ?? DEFAULT_MAX_RESULTS, HARD_MAX_RESULTS),
   );
   const maxFileBytes = options.maxFileBytes ?? DEFAULT_MAX_FILE_BYTES;
-  const regex = compilePattern(options.pattern, options.caseInsensitive === true);
   const matches: GrepMatch[] = [];
+  const query = options.caseInsensitive ? options.query.toLowerCase() : options.query;
+
+  if (!query) {
+    return matches;
+  }
 
   let searchStat: fs.Stats | null = null;
   try {
@@ -152,16 +263,11 @@ export async function grepFiles(options: GrepOptions): Promise<GrepMatch[]> {
     return matches;
   }
   if (searchStat.isFile()) {
-    const relativePath = path.relative(cwd, searchRoot);
-    await visitFile(searchRoot, relativePath);
+    await searchSingleFile(searchRoot);
     return matches;
   }
 
-  async function visitFile(
-    absolutePath: string,
-    relativePath: string,
-  ): Promise<boolean | void> {
-    if (options.glob && !matchGlob(relativePath, options.glob)) return;
+  async function searchSingleFile(absolutePath: string): Promise<boolean | void> {
     let stat: fs.Stats;
     try {
       stat = await fs.promises.stat(absolutePath);
@@ -179,8 +285,9 @@ export async function grepFiles(options: GrepOptions): Promise<GrepMatch[]> {
     const text = buffer.toString("utf8");
     const lines = text.split(/\r?\n/);
     for (let i = 0; i < lines.length; i++) {
-      regex.lastIndex = 0;
-      if (!regex.test(lines[i])) continue;
+      const line = lines[i];
+      const target = options.caseInsensitive ? line.toLowerCase() : line;
+      if (!target.includes(query)) continue;
       matches.push({
         path: absolutePath,
         line: i + 1,
@@ -190,24 +297,27 @@ export async function grepFiles(options: GrepOptions): Promise<GrepMatch[]> {
     }
   }
 
-  await walkFiles(searchRoot, skipDirs, visitFile);
-  return matches;
-}
+  const searchRel = path.relative(cwd, searchRoot).replace(/\\/g, "/");
 
-export async function globFiles(options: GlobOptions): Promise<string[]> {
-  const cwd = path.resolve(options.cwd);
-  const searchRoot = resolveInsideRoot(cwd, options.searchPath ?? ".");
-  const skipDirs = options.skipDirs ?? getConfiguredIgnoredDirs();
-  const maxResults = Math.max(
-    1,
-    Math.min(options.maxResults ?? DEFAULT_MAX_RESULTS, HARD_MAX_RESULTS),
-  );
-  const matches: string[] = [];
-  await walkFiles(searchRoot, skipDirs, async (absolutePath, relativePath) => {
-    if (!matchGlob(relativePath, options.pattern)) return;
-    matches.push(absolutePath);
-    if (matches.length >= maxResults) return false;
+  if (options.fileTree && options.fileTree.size > 0) {
+    const all = searchRel === "" || searchRel === "."
+      ? options.fileTree.listAll()
+      : options.fileTree.findInDirectory(searchRel);
+
+    for (const item of all) {
+      if (item.isDirectory) continue;
+      const abs = path.resolve(cwd, item.path);
+      const keep = await searchSingleFile(abs);
+      if (keep === false) break;
+    }
+    return matches;
+  }
+
+  await walkFiles(searchRoot, skipDirs, async (absolutePath) => {
+    const keep = await searchSingleFile(absolutePath);
+    if (keep === false) return false;
   });
+
   return matches;
 }
 

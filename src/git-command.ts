@@ -19,6 +19,8 @@ const BLOCKED_ANYWHERE = new Set([
   "--namespace",
   "--exec-path",
   "--bare",
+  "--output",
+  "-o",
 ]);
 
 const BRANCH_MUTATING = new Set([
@@ -105,10 +107,17 @@ export function planGitCommand(argv: string[]): GitPlan {
     );
   }
 
+  for (const token of argv) {
+    const flag = flagName(token);
+    if (BLOCKED_ANYWHERE.has(flag)) {
+      throw new Error(`git option ${flag} is not allowed.`);
+    }
+  }
+
   let i = 0;
   while (i < argv.length && argv[i].startsWith("-")) {
     const flag = flagName(argv[i]);
-    if (flag === "-C" || flag === "-c" || BLOCKED_ANYWHERE.has(flag)) {
+    if (flag === "-C" || flag === "-c") {
       throw new Error(`git option ${flag} is not allowed.`);
     }
     i += 1;
