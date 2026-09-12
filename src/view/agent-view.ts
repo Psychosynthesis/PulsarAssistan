@@ -327,6 +327,8 @@ export class PulsarAssistantView {
     this.renderLiveRow();
     this.refreshTurnLimitInput();
     this.refreshToolDelayInput();
+    this.handleAgentsConfigChange();
+    this.ensureStarted();
   }
 
   getElement(): HTMLElement {
@@ -1116,7 +1118,7 @@ export class PulsarAssistantView {
 
   private buildToolDelayControl(): HTMLElement {
     const wrap = document.createElement("div");
-    wrap.classList.add("pulsar-assistant-turn-limit");
+    wrap.classList.add("pulsar-assistant-turn-limit", "pulsar-assistant-tool-delay");
 
     const label = document.createElement("label");
     label.textContent = "Delay (ms)";
@@ -2878,7 +2880,7 @@ export class PulsarAssistantView {
   private updateSessionControls(): void {
     const busy = this.session.running || this.session.switching;
     this.sessionsToggle.disabled = busy;
-    this.compactButton.disabled = busy;
+    this.compactButton.disabled = false;
     this.newSessionButton.disabled = busy;
   }
 
@@ -2995,7 +2997,11 @@ export class PulsarAssistantView {
       .deleteSession(id, cwd)
       .then(() => {
         if (wasActive) {
-          this.startNewSession();
+          this.clearConversation();
+          this.resetLiveRow();
+          this.setAgentStatus("ready");
+          this.renderSessionControls();
+          this.updateInputControls();
         }
       })
       .catch((error) => {
@@ -3099,11 +3105,12 @@ export class PulsarAssistantView {
 
   private updateInputControls(): void {
     const busy = this.isComposerBusy();
-    this.input.disabled = busy;
-    this.sendButton.disabled = busy || this.input.value.trim().length === 0;
+    const noSession = !this.session.sessionId && !this.session.switching;
+    this.input.disabled = noSession;
+    this.sendButton.disabled = busy || noSession || this.input.value.trim().length === 0;
     this.updateConfigSelectorsDisabled();
     this.refreshContextMenuItems();
-    this.contextTrigger.disabled = busy || this.contextTrigger.disabled;
+    this.contextTrigger.disabled = noSession || this.contextTrigger.disabled;
   }
 
   ensureStarted(): void {

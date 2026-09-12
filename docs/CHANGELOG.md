@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.3] - 2026-09-12
+
+- **Targeted File Edits**: `write_file` now accepts either full-file `content` or a targeted `searchText`/`replaceText` replacement pair.
+- **Session Resume Fixes**: Opening a project resumes the latest stored session instead of creating a new one, loads its history into the chat, and no longer creates a replacement session after deleting the active session.
+- **Composer UX**: The prompt textarea and context compaction action stay enabled while the agent is running.
+- **Style Layout Rework**: Split the monolithic panel styles into focused Less files for common controls, the header, the chat area, and the footer. Fixed tool file links, permission cards, footer controls, and session list layout.
+
 ## [0.5.2] - 2026-09-12
 
 - **Project Settings Menu**: Moved `Edit configuration…` and `Manage projects & storage…` out of the agent picker into a dedicated gear menu next to `New session`.

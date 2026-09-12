@@ -1,0 +1,361 @@
+@import "ui-variables";
+
+// Bottom panel: composer, slash commands, staged attachments, config options,
+// turn/delay controls, action buttons, and the pinned plan bar above it.
+.pulsar-assistant-footer {
+  border-top: 1px solid @pane-item-border-color;
+  padding: (@component-padding / 2) @component-padding;
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto auto auto;
+  grid-template-rows: auto auto auto auto;
+  align-items: center;
+  column-gap: (@component-padding / 2);
+
+  .pulsar-assistant-input {
+    width: 100%;
+    min-height: 150px;
+    margin-top: 15px;
+    resize: vertical;
+    padding: (@component-padding / 2);
+    font-family: inherit;
+    background-color: @input-background-color;
+    color: @text-color;
+    border: 1px solid @input-border-color;
+    border-radius: @component-border-radius;
+
+    &:focus {
+      outline: none;
+      border-color: @text-color-info;
+    }
+  }
+
+  .pulsar-assistant-actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: nowrap;
+    gap: (@component-padding / 2);
+    margin-top: (@component-padding / 2);
+  }
+
+  .pulsar-assistant-action-buttons {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: (@component-padding / 2);
+    margin-top: (@component-padding / 2);
+  }
+}
+
+// Grid placement. The actions containers are flattened so children can be
+// placed directly on the footer grid.
+.pulsar-assistant-footer > .pulsar-assistant-context-strip {
+  grid-column: 1 / -1;
+  grid-row: 1;
+}
+
+.pulsar-assistant-footer > .pulsar-assistant-slash-wrap {
+  grid-column: 1 / -1;
+  grid-row: 2;
+}
+
+.pulsar-assistant-footer > .pulsar-assistant-actions,
+.pulsar-assistant-footer > .pulsar-assistant-action-buttons {
+  display: contents;
+}
+
+.pulsar-assistant-footer .pulsar-assistant-context {
+  grid-column: 1;
+  grid-row: 3;
+  margin-top: (@component-padding / 2);
+}
+
+.pulsar-assistant-footer .pulsar-assistant-config-selectors {
+  grid-column: 2;
+  grid-row: 3;
+  margin-top: (@component-padding / 2);
+}
+
+.pulsar-assistant-footer .pulsar-assistant-turn-limit {
+  grid-column: 4;
+  grid-row: 3;
+  margin-top: (@component-padding / 2);
+}
+
+.pulsar-assistant-footer .pulsar-assistant-tool-delay {
+  grid-column: 5;
+  grid-row: 3;
+  margin-top: (@component-padding / 2);
+}
+
+.pulsar-assistant-footer .pulsar-assistant-auto-approve {
+  grid-column: 6;
+  grid-row: 3;
+  margin-top: (@component-padding / 2);
+}
+
+.pulsar-assistant-footer .pulsar-assistant-follow {
+  grid-column: 1;
+  grid-row: 4;
+  margin-top: (@component-padding / 2);
+  margin-right: 0;
+}
+
+.pulsar-assistant-footer .pulsar-assistant-stop {
+  grid-column: 5;
+  grid-row: 4;
+  margin-top: (@component-padding / 2);
+}
+
+.pulsar-assistant-footer .pulsar-assistant-send {
+  grid-column: 6;
+  grid-row: 4;
+  margin-top: (@component-padding / 2);
+}
+
+.pulsar-assistant-action-buttons {
+  margin-left: auto;
+}
+
+.pulsar-assistant-action-buttons .btn {
+  flex-shrink: 0;
+}
+
+.pulsar-assistant-follow {
+  flex-shrink: 0;
+
+  &.pulsar-assistant-follow--on {
+    color: @text-color-info;
+    border-color: @text-color-info;
+    background-color: fade(@text-color-info, 10%);
+
+    &:hover {
+      background-color: fade(@text-color-info, 20%);
+    }
+  }
+}
+
+.pulsar-assistant-stop {
+  flex-shrink: 0;
+}
+
+.pulsar-assistant-send {
+  flex-shrink: 0;
+  color: @text-color-highlight;
+  background-color: @background-color-info;
+  border-color: transparent;
+
+  &:hover:not(:disabled) {
+    opacity: 0.9;
+  }
+}
+
+.pulsar-assistant-auto-approve {
+  &.pulsar-assistant-auto-approve--on {
+    color: @text-color-warning;
+    border-color: @text-color-warning;
+    background-color: fade(@text-color-warning, 10%);
+
+    &:hover {
+      background-color: fade(@text-color-warning, 20%);
+    }
+  }
+}
+
+// Slash-command popup — reuses the picker menu/item look, anchored above the composer.
+.pulsar-assistant-slash-wrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.pulsar-assistant-slash-menu {
+  top: auto;
+  bottom: 100%;
+  left: 0;
+  right: 0;
+  max-width: none;
+  margin: 0 0 2px 0;
+  max-height: 16em;
+  overflow-y: auto;
+}
+
+.pulsar-assistant-slash-item {
+  display: flex;
+  align-items: baseline;
+  gap: (@component-padding / 2);
+  white-space: normal;
+
+  .pulsar-assistant-slash-name {
+    flex: 0 0 auto;
+    font-weight: 600;
+  }
+
+  .pulsar-assistant-slash-desc {
+    flex: 1 1 auto;
+    font-weight: normal;
+    color: @text-color-subtle;
+    font-size: 0.85em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  &.is-active {
+    background-color: @background-color-highlight;
+    color: @text-color-highlight;
+
+    // The picker uses is-active for the selected agent and draws a checkmark;
+    // here it's just the keyboard highlight, so suppress the mark.
+    &::before {
+      content: none;
+    }
+
+    .pulsar-assistant-slash-desc {
+      color: @text-color-highlight;
+    }
+  }
+}
+
+.pulsar-assistant-slash-hint {
+  margin-top: (@component-padding / 4);
+  color: @text-color-subtle;
+  font-size: 0.85em;
+  font-style: italic;
+}
+
+// Session config option dropdowns (model, agent, reasoning effort, …) from the
+// ACP configOptions array, grouped at the left of the actions row.
+.pulsar-assistant-config-selectors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: (@component-padding / 2);
+}
+
+// Max tool turns and tool delay per project: compact number inputs.
+.pulsar-assistant-turn-limit {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.82em;
+  color: @text-color-subtle;
+
+  label {
+    white-space: nowrap;
+  }
+
+  input {
+    width: 3.4em;
+    padding: 2px 4px;
+    font-family: inherit;
+    font-size: inherit;
+    color: @text-color;
+    background-color: @input-background-color;
+    border: 1px solid @input-border-color;
+    border-radius: @component-border-radius;
+
+    &:focus {
+      outline: none;
+      border-color: @text-color-info;
+    }
+
+    &:disabled {
+      opacity: 0.5;
+    }
+  }
+}
+
+// The Tool turns value is a compact number; hide native spinners and give it
+// enough width to feel like a normal field rather than a cramped stepper.
+.pulsar-assistant-footer .pulsar-assistant-turn-limit input {
+  width: 5em;
+  -moz-appearance: textfield;
+  appearance: textfield;
+
+  &::-webkit-outer-spin-button,
+  &::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+}
+
+// Staged editor-context attachments shown as pills above the input.
+.pulsar-assistant-context-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: (@component-padding / 2);
+  padding-bottom: (@component-padding / 2);
+}
+
+// Live plan: a pinned, collapsible bar above the composer (see Zed and VS
+// Code) so progress stays glanceable while the conversation scrolls.
+.pulsar-assistant-plan-bar {
+  border-top: 1px solid @pane-item-border-color;
+  background-color: @tool-panel-background-color;
+}
+
+.pulsar-assistant-plan-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: (@component-padding / 2) @component-padding;
+  cursor: pointer;
+  user-select: none;
+
+  &:hover {
+    background-color: @background-color-highlight;
+  }
+
+  .icon::before {
+    margin: 0;
+  }
+}
+
+.pulsar-assistant-plan-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.pulsar-assistant-plan-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 @component-padding (@component-padding / 2);
+  max-height: 9rem;
+  overflow-y: auto;
+}
+
+.pulsar-assistant-plan-entry {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+
+  .icon::before {
+    margin-right: 0;
+  }
+
+  &.status-completed .pulsar-assistant-plan-entry-text {
+    color: @text-color-subtle;
+    text-decoration: line-through;
+  }
+
+  &.status-in_progress .pulsar-assistant-plan-entry-text {
+    color: @text-color-highlight;
+  }
+}
+
+.pulsar-assistant-plan-entry-text {
+  min-width: 0;
+}
+
+.pulsar-assistant-spin {
+  animation: pulsar-assistant-spin 1s linear infinite;
+}
+
+@keyframes pulsar-assistant-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

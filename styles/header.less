@@ -1,0 +1,437 @@
+@import "ui-variables";
+
+// Top panel: agent picker, context progress, info/details, session controls
+// and the collapsible sessions list. Model selector lives in
+// header-model-selector.less.
+.pulsar-assistant-header {
+  border-bottom: 1px solid @pane-item-border-color;
+  padding: (@component-padding * 0.75) @component-padding (@component-padding / 2);
+}
+
+.pulsar-assistant-header-row1 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pulsar-assistant-picker-wrap {
+  position: relative;
+  flex-shrink: 0;
+  // Pull the borderless label flush with the version line below so the agent
+  // name and version stack as a single title/subtitle identity block.
+  margin-left: -6px;
+}
+
+.pulsar-assistant-picker {
+  display: inline-flex;
+  align-items: center;
+  max-width: 16em;
+  padding: 2px 6px;
+  background: none;
+  border: none;
+  border-radius: @component-border-radius;
+  color: @text-color;
+  font-size: 0.9em;
+  font-weight: 600;
+  line-height: 1.4;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+
+  &::after {
+    content: " \25be";
+    margin-left: 4px;
+    font-weight: normal;
+    opacity: 0.5;
+  }
+
+  &:hover {
+    background-color: @background-color-highlight;
+    color: @text-color-highlight;
+  }
+
+  &:focus {
+    outline: none;
+  }
+
+  &:focus-visible {
+    outline: 1px solid @text-color-info;
+    outline-offset: 1px;
+  }
+
+  &.is-stale {
+    color: @text-color-warning;
+  }
+}
+
+.pulsar-assistant-header-row2 {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 1px;
+  color: @text-color-subtle;
+  font-size: 0.82em;
+  line-height: 1.4;
+}
+
+.pulsar-assistant-info-toggle {
+  flex-shrink: 0;
+  padding: 0;
+  background: none;
+  border: none;
+  color: @text-color-subtle;
+  font-family: inherit;
+  font-size: inherit;
+  cursor: pointer;
+  line-height: inherit;
+
+  &:hover,
+  &[aria-expanded="true"] {
+    color: @text-color;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  &:focus {
+    outline: none;
+  }
+
+  &:focus-visible {
+    outline: 1px solid @text-color-info;
+    outline-offset: 2px;
+  }
+}
+
+.pulsar-assistant-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.pulsar-assistant-token-usage {
+  flex-shrink: 0;
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.pulsar-assistant-token-usage--lifecycle {
+  margin-left: 0;
+  margin-right: auto;
+}
+
+// Compact API traffic summary shown in the same header row as More...
+.pulsar-assistant-traffic {
+  flex-shrink: 0;
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.pulsar-assistant-header-row2.has-traffic .pulsar-assistant-token-usage {
+  margin-left: 0;
+}
+
+.pulsar-assistant-context-progress {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.82em;
+  color: @text-color-subtle;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.pulsar-assistant-context-track {
+  width: 120px;
+  height: 8px;
+  background-color: @input-background-color;
+  border: 1px solid @input-border-color;
+  border-radius: 4px;
+  overflow: hidden;
+  position: relative;
+}
+
+.pulsar-assistant-context-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 3px;
+  transition: none !important;
+
+  &.pulsar-assistant-context-fill-normal {
+    background-color: @background-color-info;
+  }
+
+  &.pulsar-assistant-context-fill-warning {
+    background-color: @background-color-warning;
+  }
+
+  &.pulsar-assistant-context-fill-error {
+    background-color: @background-color-error;
+  }
+}
+
+.pulsar-assistant-context-label {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.pulsar-assistant-info-panel {
+  border-bottom: 1px solid @pane-item-border-color;
+  padding: (@component-padding * 0.75) @component-padding;
+  background-color: @base-background-color;
+  font-size: 0.85em;
+}
+
+.pulsar-assistant-info-header {
+  display: flex;
+  align-items: center;
+  gap: @component-padding;
+  margin-bottom: (@component-padding * 0.75);
+}
+
+.pulsar-assistant-info-title {
+  flex: 1;
+  min-width: 0;
+  color: @text-color;
+  font-weight: 600;
+}
+
+.pulsar-assistant-info-actions {
+  display: flex;
+  align-items: center;
+  gap: (@component-padding / 2);
+  margin-left: auto;
+}
+
+.pulsar-assistant-info-row {
+  display: flex;
+  align-items: baseline;
+  gap: @component-padding;
+  margin-bottom: (@component-padding / 2);
+
+  &:last-child {
+    margin-bottom: 0;
+  }
+}
+
+.pulsar-assistant-info-label {
+  flex-shrink: 0;
+  min-width: 7em;
+  color: @text-color-subtle;
+  font-size: 0.78em;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+
+.pulsar-assistant-info-value {
+  color: @text-color;
+}
+
+.pulsar-assistant-info-version {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  gap: @component-padding;
+}
+
+.pulsar-assistant-info-table {
+  flex: 1;
+  min-width: 0;
+  max-height: 10em;
+  overflow-y: auto;
+  font-size: 0.9em;
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  td {
+    padding: 0 0 2px;
+    vertical-align: top;
+    font-family: monospace;
+  }
+
+  td + td {
+    padding-left: @component-padding;
+  }
+}
+
+.pulsar-assistant-info-key {
+  color: @text-color-subtle;
+  word-break: break-word;
+}
+
+.pulsar-assistant-info-table-value {
+  color: @text-color;
+  word-break: break-word;
+}
+
+.pulsar-assistant-sessions-toggle,
+.pulsar-assistant-new-session,
+.pulsar-assistant-compact-context {
+  flex-shrink: 0;
+  padding: 2px 4px;
+  background: none;
+  border: none;
+  color: @text-color-subtle;
+  cursor: pointer;
+  line-height: 1;
+
+  &::before {
+    margin-right: 0;
+  }
+
+  &:hover {
+    color: @text-color;
+  }
+
+  &:focus {
+    outline: none;
+  }
+
+  &:focus-visible {
+    outline: 1px solid @text-color-info;
+    outline-offset: 2px;
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+}
+
+.pulsar-assistant-sessions-toggle {
+  &[aria-expanded="true"] {
+    color: @text-color;
+  }
+}
+
+.pulsar-assistant-sessions-list {
+  max-height: 25vh;
+  overflow-y: auto;
+  background-color: @tool-panel-background-color;
+  border-bottom: 1px solid @pane-item-border-color;
+  padding: (@component-padding / 4) 0;
+}
+
+.pulsar-assistant-session-row {
+  display: flex;
+  align-items: center;
+  padding: 0 (@component-padding / 2);
+  border-bottom: 1px solid fade(@pane-item-border-color, 40%);
+
+  &:last-child {
+    border-bottom: none;
+  }
+
+  &.is-active {
+    background-color: fade(@text-color-info, 15%);
+  }
+
+  &:not(.is-active):hover {
+    background-color: @background-color-highlight;
+  }
+
+  &:hover .pulsar-assistant-session-delete,
+  &.is-active .pulsar-assistant-session-delete {
+    opacity: 1;
+  }
+}
+
+.pulsar-assistant-session-entry {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: row;
+  align-items: baseline;
+  gap: (@component-padding / 2);
+  text-align: left;
+  background: none;
+  border: none;
+  padding: (@component-padding * 0.6) (@component-padding / 2);
+  cursor: pointer;
+  font-family: inherit;
+
+  &:disabled {
+    cursor: default;
+  }
+
+  .pulsar-assistant-session-title {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: @text-color;
+    font-size: 0.9em;
+    line-height: 1.3;
+
+    .is-active & {
+      font-weight: 600;
+      color: @text-color-highlight;
+    }
+  }
+
+  .pulsar-assistant-session-time {
+    flex-shrink: 0;
+    color: @text-color-subtle;
+    font-size: 0.78em;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.pulsar-assistant-session-delete {
+  flex-shrink: 0;
+  opacity: 0;
+  background: none;
+  border: none;
+  color: @text-color-subtle;
+  padding: 4px 6px;
+  cursor: pointer;
+  font-size: 1em;
+  line-height: 1;
+  border-radius: @component-border-radius;
+
+  &::before {
+    margin-right: 0;
+  }
+
+  &:hover:not(:disabled) {
+    color: @text-color-error;
+    opacity: 1;
+  }
+
+  &:disabled {
+    cursor: default;
+  }
+}
+
+.pulsar-assistant-model-wrap {
+  position: relative;
+  flex-shrink: 1;
+  min-width: 0;
+}
+
+.pulsar-assistant-model-selector {
+  display: inline-flex;
+  align-items: center;
+}
+
+.pulsar-assistant-model-trigger {
+  max-width: 14em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pulsar-assistant-model-menu {
+  top: 100%;
+  bottom: auto;
+  left: 0;
+  max-width: 24em;
+  max-height: 50vh;
+  overflow-y: auto;
+}

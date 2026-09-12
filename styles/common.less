@@ -1,0 +1,449 @@
+@import "ui-variables";
+
+// Root panel shell.
+.pulsar-assistant {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 240px;
+  background-color: @tool-panel-background-color;
+  color: @text-color;
+
+  // Focusable for keyboard copy (tabIndex -1); never draw a focus ring.
+  &:focus {
+    outline: none;
+  }
+}
+
+// Generic dropdown menu used by the header picker, model selector, config
+// options, and the project settings menu.
+.pulsar-assistant-picker-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 10;
+  margin-top: 2px;
+  min-width: 12em;
+  max-width: 20em;
+  padding: (@component-padding / 4) 0;
+  background-color: @overlay-background-color;
+  border: 1px solid @overlay-border-color;
+  border-radius: @component-border-radius;
+  box-shadow: 0 2px 8px fade(black, 30%);
+}
+
+.pulsar-assistant-picker-group {
+  padding: (@component-padding / 2) (@component-padding * 1.5) 2px;
+  color: @text-color-subtle;
+  font-size: 0.75em;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
+.pulsar-assistant-picker-item + .pulsar-assistant-picker-group {
+  margin-top: (@component-padding / 4);
+}
+
+.pulsar-assistant-picker-item {
+  display: block;
+  position: relative;
+  width: 100%;
+  text-align: left;
+  padding: (@component-padding / 3) (@component-padding * 1.5);
+  background: none;
+  border: none;
+  color: @text-color;
+  font-family: inherit;
+  font-size: 0.9em;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+
+  &:hover,
+  &:focus-visible {
+    background-color: @background-color-highlight;
+    color: @text-color-highlight;
+  }
+
+  &:focus {
+    outline: none;
+  }
+
+  &.is-active {
+    font-weight: 600;
+    color: @text-color-highlight;
+
+    &::before {
+      content: "\2713";
+      position: absolute;
+      margin-left: -1em;
+    }
+  }
+}
+
+.pulsar-assistant-picker-empty {
+  padding: (@component-padding / 3) (@component-padding * 1.5);
+  color: @text-color-subtle;
+  font-size: 0.85em;
+  font-style: italic;
+}
+
+.pulsar-assistant-picker-separator {
+  height: 1px;
+  margin: (@component-padding / 4) 0;
+  background-color: @overlay-border-color;
+}
+
+// Shared file links shown inside tool and permission cards.
+.pulsar-assistant-location {
+  appearance: none;
+  display: inline-block;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  color: @text-color-info;
+  font-family: inherit;
+  font-size: inherit;
+  text-align: left;
+  cursor: pointer;
+  text-decoration: none;
+
+  &:hover,
+  &:focus-visible {
+    color: @text-color-info;
+    text-decoration: underline;
+  }
+
+  &:focus {
+    outline: none;
+  }
+}
+
+// Raw code/diff blocks reused across chat tools and permission cards.
+.pulsar-assistant-code-block {
+  margin: 0;
+  padding: 6px 8px;
+  background-color: @base-background-color;
+  border-radius: @component-border-radius;
+  overflow-x: auto;
+  color: @text-color;
+  font-family: monospace;
+  font-size: 0.88em;
+  line-height: 1.4;
+  white-space: pre;
+  word-break: normal;
+}
+
+.pulsar-assistant-tool-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+// Secondary low-chrome "ghost" buttons. Send is the only emphasized action.
+.pulsar-assistant-config-trigger,
+.pulsar-assistant-context-trigger,
+.pulsar-assistant-auto-approve,
+.pulsar-assistant-follow,
+.pulsar-assistant-stop {
+  font-size: 0.85em;
+  background: none;
+  border: 1px solid transparent;
+  color: @text-color-subtle;
+
+  &:hover:not(:disabled) {
+    color: @text-color;
+    background-color: @background-color-highlight;
+  }
+}
+
+// Config/menu select controls shared by the header model selector and the
+// footer config-option dropdowns.
+.pulsar-assistant-config {
+  position: relative;
+}
+
+.pulsar-assistant-config-trigger {
+  &::after {
+    content: " \25be";
+    opacity: 0.9;
+  }
+
+  &[aria-expanded="true"] {
+    color: @text-color;
+  }
+}
+
+.pulsar-assistant-config-menu {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  z-index: 10;
+  min-width: 140px;
+  max-width: 260px;
+  max-height: 50vh;
+  overflow-y: auto;
+  margin-bottom: (@component-padding / 4);
+  padding: (@component-padding / 4) 0;
+  background-color: @tool-panel-background-color;
+  border: 1px solid @pane-item-border-color;
+  border-radius: @component-border-radius;
+  box-shadow: 0 4px 12px fade(@base-border-color, 80%);
+}
+
+.pulsar-assistant-config-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: (@component-padding / 4) @component-padding;
+  cursor: pointer;
+  font-family: inherit;
+
+  &:hover {
+    background-color: @background-color-highlight;
+  }
+
+  &.is-active {
+    background-color: fade(@text-color-info, 15%);
+  }
+
+  .pulsar-assistant-config-name {
+    color: @text-color;
+    font-size: 0.9em;
+
+    .is-active & {
+      font-weight: 600;
+      color: @text-color-highlight;
+    }
+  }
+
+  &.is-active::after {
+    content: "\2713";
+    margin-left: auto;
+    padding-left: @component-padding;
+    color: @text-color-info;
+  }
+
+  &:disabled {
+    cursor: default;
+    opacity: 0.4;
+
+    &:hover {
+      background: none;
+    }
+  }
+}
+
+// Context attachment chips appear both above the composer and inside user
+// messages, so their base look lives here.
+.pulsar-assistant-context-chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  gap: (@component-padding / 4);
+  padding: 1px (@component-padding / 2);
+  background-color: @background-color-highlight;
+  border: 1px solid @pane-item-border-color;
+  border-radius: @component-border-radius;
+  font-size: 0.85em;
+  line-height: 1.6;
+
+  .icon::before {
+    margin-right: 0;
+  }
+
+  .pulsar-assistant-context-label {
+    overflow: hidden;
+    color: @text-color;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .pulsar-assistant-context-remove {
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    line-height: 14px;
+    font-size: 11px;
+    text-align: center;
+    background: @background-color-error;
+    color: @text-color-highlight;
+    border: none;
+    border-radius: 50%;
+    cursor: pointer;
+  }
+}
+
+// Status-bar tile (rendered outside the panel DOM).
+.pulsar-assistant-status-tile {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+
+  .icon::before {
+    margin-right: 0;
+  }
+
+  .pulsar-assistant-status-tile-name {
+    max-width: 14em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .pulsar-assistant-status-tile-dot {
+    box-sizing: border-box;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: @text-color-subtle;
+
+    &[data-status="connecting"] {
+      background-color: transparent;
+      border: 2px solid @text-color-success;
+    }
+
+    &[data-status="ready"] {
+      background-color: @text-color-success;
+    }
+
+    &[data-status="working"] {
+      background-color: @text-color-info;
+    }
+
+    &[data-status="awaiting"] {
+      background-color: @text-color-warning;
+    }
+
+    &[data-status="warning"] {
+      background-color: @text-color-warning;
+    }
+
+    &[data-status="error"] {
+      background-color: @text-color-error;
+    }
+  }
+}
+
+// Tooltips render under <body>, so this selector must stay top-level. The
+// one-dark/one-light themes force `white-space: nowrap; max-width: none` on
+// .tooltip-inner, so both must be overridden for long titles to wrap.
+.tooltip.pulsar-assistant-tooltip .tooltip-inner {
+  white-space: normal;
+  max-width: 240px;
+  word-break: break-word;
+}
+
+// Projects & Storage modal overlay.
+.pulsar-assistant-projects-modal {
+  padding: @component-padding;
+  max-width: 780px;
+  width: 100%;
+  max-height: 85vh;
+  overflow-y: auto;
+  box-sizing: border-box;
+
+  .pulsar-assistant-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: @component-padding;
+    border-bottom: 1px solid @pane-item-border-color;
+    padding-bottom: (@component-padding / 2);
+  }
+
+  .pulsar-assistant-modal-title {
+    margin: 0;
+    font-size: 1.25em;
+    font-weight: 600;
+  }
+
+  .pulsar-assistant-modal-close {
+    padding: 2px 8px;
+  }
+
+  .pulsar-assistant-modal-section {
+    margin-bottom: (@component-padding * 1.5);
+
+    h3 {
+      margin-top: 0;
+      margin-bottom: (@component-padding / 4);
+      font-size: 1.05em;
+    }
+
+    p {
+      margin-top: 0;
+      margin-bottom: (@component-padding / 2);
+    }
+  }
+
+  .pulsar-assistant-section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: (@component-padding / 4);
+  }
+
+  .pulsar-assistant-table-scroll {
+    max-height: 220px;
+    overflow-y: auto;
+    border: 1px solid @pane-item-border-color;
+    border-radius: @component-border-radius;
+  }
+
+  .pulsar-assistant-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9em;
+
+    th, td {
+      padding: (@component-padding / 3) (@component-padding / 2);
+      text-align: left;
+      border-bottom: 1px solid fade(@pane-item-border-color, 50%);
+    }
+
+    th {
+      position: sticky;
+      top: 0;
+      background-color: @tool-panel-background-color;
+      font-weight: 600;
+      z-index: 1;
+    }
+
+    tr:last-child td {
+      border-bottom: none;
+    }
+
+    tbody tr:hover {
+      background-color: @background-color-highlight;
+    }
+  }
+
+  .pulsar-assistant-table-custom-row td {
+    background-color: fade(@text-color-info, 8%);
+  }
+
+  .pulsar-assistant-project-path {
+    max-width: 260px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: monospace;
+    font-size: 0.85em;
+  }
+
+  .pulsar-assistant-empty-state {
+    padding: @component-padding;
+    text-align: center;
+    color: @text-color-subtle;
+    border: 1px dashed @pane-item-border-color;
+    border-radius: @component-border-radius;
+  }
+}

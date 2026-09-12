@@ -57,15 +57,27 @@ export class BuiltinBackend implements AgentBackend {
       supportsImages: false,
     });
 
-    const session = await builtin.newSession({ cwd, mcpServers: [] });
-    this.sessionId = session.sessionId;
-    this.sessionCwd = cwd;
-    this.loadedSessionIds.add(session.sessionId);
+    const storedSessions = await builtin.listSessions();
+    let sessionId: string;
+    if (storedSessions.length > 0) {
+      const latest = storedSessions[0];
+      this.sessionId = latest.id;
+      this.sessionCwd = latest.projectRoot;
+      this.loadedSessionIds.add(latest.id);
+      await builtin.loadSession(latest.id);
+      sessionId = latest.id;
+    } else {
+      const session = await builtin.newSession({ cwd, mcpServers: [] });
+      this.sessionId = session.sessionId;
+      this.sessionCwd = cwd;
+      this.loadedSessionIds.add(session.sessionId);
+      sessionId = session.sessionId;
+    }
 
     return {
-      sessionId: session.sessionId,
-      cwd,
-      configOptions: session.configOptions,
+      sessionId,
+      cwd: this.sessionCwd,
+      configOptions: null,
     };
   }
 
@@ -147,8 +159,8 @@ export class BuiltinBackend implements AgentBackend {
     if (!this.builtin) {
       throw new Error("Agent is not connected.");
     }
-    await this.builtin.loadSession(id);
     this.sessionId = id;
+    await this.builtin.loadSession(id);
     this.sessionCwd = cwd;
     this.loadedSessionIds.add(id);
   }

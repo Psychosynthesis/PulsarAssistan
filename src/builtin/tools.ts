@@ -39,15 +39,27 @@ export const TOOL_DEFINITIONS: ChatTool[] = [
     function: {
       name: "write_file",
       description:
-        "Create or overwrite a text file in the project. Writing inside .git is not allowed.",
+        "Create, overwrite, or patch a text file in the project. Pass `content` to replace the whole file, or pass `searchText` and `replaceText` to replace all occurrences of searchText. Writing inside .git is not allowed.",
       parameters: {
         type: "object",
         additionalProperties: false,
         properties: {
           path: { type: "string" },
-          content: { type: "string" },
+          content: {
+            type: "string",
+            description:
+              "Full new file content. Use either this or searchText/replaceText.",
+          },
+          searchText: {
+            type: "string",
+            description: "Text to find and replace in the existing file.",
+          },
+          replaceText: {
+            type: "string",
+            description: "Replacement for every occurrence of searchText.",
+          },
         },
-        required: ["path", "content"],
+        required: ["path"],
       },
     },
   },
@@ -295,11 +307,18 @@ export function describeToolCall(
     case "write_file": {
       const filePath = resolveInsideRoot(cwd, stringArg(args, "path") ?? ".");
       assertWritablePath(cwd, filePath);
+      const rawInput: Record<string, unknown> = { path: filePath };
+      if (stringArg(args, "content") !== undefined) {
+        rawInput.content = stringArg(args, "content");
+      } else {
+        rawInput.searchText = stringArg(args, "searchText");
+        rawInput.replaceText = stringArg(args, "replaceText");
+      }
       return {
-        title: `Write ${path.basename(filePath)}`,
+        title: `Edit ${path.basename(filePath)}`,
         kind: "edit",
         locations: [{ path: filePath }],
-        rawInput: { path: filePath, content: stringArg(args, "content") ?? "" },
+        rawInput,
         needsPermission: true,
       };
     }
@@ -478,7 +497,17 @@ async function writeFileTool(
 ): Promise<ToolSuccess> {
   const filePath = resolveInsideRoot(cwd, stringArg(args, "path") ?? ".");
   assertWritablePath(cwd, filePath);
-  const content = stringArg(args, "content") ?? "";
+
+  const fullContent = stringArg(args, "content");
+  const searchText = stringArg(args, "searchText");
+  const replaceText = stringArg(args, "replaceText");
+
+  if (fullContent !== undefined && searchText !== undefined) {
+    throw new Error(
+      "write_file accepts either `content` or `searchText`+`replaceText`, not both.",
+    );
+  }
+
   let oldText: string | null = null;
   try {
     const existing = await conn.readTextFile({ sessionId, path: filePath });
@@ -486,10 +515,42 @@ async function writeFileTool(
   } catch {
     oldText = null;
   }
-  await conn.writeTextFile({ sessionId, path: filePath, content });
+
+  let newContent: string;
+  let replacedCount = 0;
+
+  if (searchText !== undefined) {
+    if (replaceText === undefined) {
+      throw new Error("write_file `searchText` requires `replaceText`.");
+    }
+    if (searchText.length === 0) {
+      throw new Error("write_file `searchText` must not be empty.");
+    }
+    const current = oldText ?? "";
+    const parts = current.split(searchText);
+    if (parts.length === 1) {
+      throw new Error(`Search text not found in ${filePath}`);
+    }
+    replacedCount = parts.length - 1;
+    newContent = parts.join(replaceText);
+  } else {
+    if (fullContent === undefined) {
+      throw new Error(
+        "write_file requires either `content` or `searchText`+`replaceText`.",
+      );
+    }
+    newContent = fullContent;
+  }
+
+  await conn.writeTextFile({ sessionId, path: filePath, content: newContent });
   return {
-    output: `Wrote ${filePath}`,
-    content: [{ type: "diff", path: filePath, oldText, newText: content }],
+    output:
+      searchText !== undefined
+        ? `Replaced ${replacedCount} occurrence${replacedCount === 1 ? "" : "s"} in ${filePath}`
+        : `Wrote ${filePath}`,
+    content: [
+      { type: "diff", path: filePath, oldText, newText: newContent },
+    ],
   };
 }
 

@@ -1,0 +1,531 @@
+@import "ui-variables";
+
+// Conversation area: messages, markdown, tool calls, diffs, permission/auth
+// cards, and completed-plan snapshots.
+.pulsar-assistant-conversation {
+  flex: 1;
+  // Allow the flex item to shrink below content height so internal
+  // overflow-y scrolling works inside the conversation wrapper.
+  min-height: 0;
+  overflow-y: auto;
+  // Disable scroll anchoring: late layout growth above the streaming output
+  // would bump scrollTop and fire a scroll event that breaks stick-to-bottom.
+  overflow-anchor: none;
+  padding: @component-padding;
+  line-height: 1.5;
+  // Pulsar's workspace chrome sets user-select:none; opt chat text back in.
+  // Mirror the prefixed property core uses so the override wins everywhere.
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.pulsar-assistant-conversation-wrapper {
+  flex: 1;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.pulsar-assistant-scroll-to-bottom {
+  position: absolute;
+  bottom: @component-padding;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px 3px 8px;
+  background-color: @overlay-background-color;
+  border: 1px solid @overlay-border-color;
+  border-radius: 1em;
+  color: @text-color;
+  font-size: 0.85em;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: 0 2px 8px fade(@base-border-color, 80%);
+
+  &::before {
+    margin-right: 4px;
+    vertical-align: middle;
+  }
+
+  &:hover {
+    background-color: @background-color-highlight;
+    color: @text-color-highlight;
+  }
+}
+
+.pulsar-assistant-loading-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  // Never intercept clicks/scroll on the conversation building underneath.
+  pointer-events: none;
+  background: @tool-panel-background-color;
+}
+
+.pulsar-assistant-loading-label {
+  color: @text-color-subtle;
+  animation: pulsar-assistant-loading-pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulsar-assistant-loading-pulse {
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+.pulsar-assistant-generating {
+  color: @text-color-subtle;
+  padding: (@component-padding / 2) 0;
+  animation: pulsar-assistant-loading-pulse 2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pulsar-assistant-loading-label,
+  .pulsar-assistant-generating {
+    animation: none;
+    opacity: 0.6;
+  }
+}
+
+.pulsar-assistant-message {
+  margin-bottom: @component-padding;
+
+  .pulsar-assistant-message-role {
+    font-size: 0.8em;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: @text-color-subtle;
+    margin-bottom: 2px;
+  }
+
+  .pulsar-assistant-message-body {
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  // Rendered Markdown drops pre-wrap so marked's inter-block newlines don't
+  // double the block margins, then tightens those margins.
+  .pulsar-assistant-markdown {
+    white-space: normal;
+
+    > :first-child {
+      margin-top: 0;
+    }
+
+    > :last-child {
+      margin-bottom: 0;
+    }
+
+    p,
+    ul,
+    ol,
+    pre,
+    blockquote,
+    table {
+      margin: 0 0 0.5em;
+    }
+
+    ul,
+    ol {
+      padding-left: 1.4em;
+    }
+
+    li {
+      margin: 0;
+    }
+
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6 {
+      margin: 0.6em 0 0.3em;
+      line-height: 1.25;
+    }
+  }
+}
+
+.pulsar-assistant-message--user .pulsar-assistant-message-body {
+  color: @text-color-highlight;
+}
+
+.pulsar-assistant-message--thought .pulsar-assistant-message-body {
+  color: @text-color-subtle;
+  font-style: italic;
+}
+
+.pulsar-assistant-message--note {
+  color: @text-color-info;
+  font-size: 0.9em;
+}
+
+.pulsar-assistant-message--error {
+  color: @text-color-error;
+  white-space: pre-wrap;
+  padding: (@component-padding / 2);
+  border: 1px solid @text-color-error;
+  border-radius: @component-border-radius;
+  margin-bottom: @component-padding;
+}
+
+.pulsar-assistant-message-context {
+  display: flex;
+  flex-wrap: wrap;
+  gap: (@component-padding / 2);
+  margin-top: (@component-padding / 2);
+}
+
+.pulsar-assistant-tool {
+  background: rgba(200, 200, 200, 0.05);
+  border: 1px solid @pane-item-border-color;
+  border-radius: @component-border-radius;
+  padding: (@component-padding / 2);
+  margin-bottom: (@component-padding + 5px);
+
+  .pulsar-assistant-tool-heading {
+    display: flex;
+    align-items: center;
+  }
+
+  .pulsar-assistant-tool-heading--link .pulsar-assistant-tool-title {
+    cursor: pointer;
+
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+
+  .pulsar-assistant-tool-status {
+    margin-right: 6px;
+  }
+
+  &[data-status="failed"] .pulsar-assistant-tool-status {
+    color: @text-color-error;
+  }
+
+  &[data-status="completed"] .pulsar-assistant-tool-status {
+    color: @text-color-success;
+  }
+
+  .pulsar-assistant-tool-body {
+    margin-top: 4px;
+    padding: 0 (@component-padding / 2);
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: monospace;
+    font-size: 0.9em;
+    line-height: 1.5;
+    color: @text-color-subtle;
+  }
+
+  .pulsar-assistant-tool-body--collapsed {
+    overflow: hidden;
+  }
+
+  .pulsar-assistant-tool-body--collapsed-text {
+    max-height: 4.5em;
+  }
+
+  .pulsar-assistant-tool-body--collapsed-diff {
+    max-height: 30em;
+  }
+
+  .pulsar-assistant-tool-body--expanded {
+    max-height: none;
+  }
+
+  .pulsar-assistant-tool-summary {
+    padding: 0 (@component-padding / 2);
+    margin-top: 2px;
+    color: @text-color-subtle;
+    font-size: 0.82em;
+    font-style: italic;
+  }
+
+  .pulsar-assistant-tool-toggle {
+    margin-top: 4px;
+    margin-left: (@component-padding / 2);
+    padding: 0;
+    border: none;
+    background: none;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 0.9em;
+    color: @text-color-info;
+
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+}
+
+.pulsar-assistant-diff {
+  white-space: pre-wrap;
+  font-family: monospace;
+  font-size: 0.9em;
+
+  .pulsar-assistant-diff-line {
+    white-space: pre-wrap;
+  }
+
+  .pulsar-assistant-diff-line--path,
+  .pulsar-assistant-diff-line--context {
+    color: @text-color-subtle;
+  }
+
+  .pulsar-assistant-diff-line--added {
+    color: @text-color-success;
+  }
+
+  .pulsar-assistant-diff-line--removed {
+    color: @text-color-error;
+  }
+}
+
+// Completed-plan snapshot card appended to the conversation.
+.pulsar-assistant-plan-card {
+  border-left: 2px solid @background-color-info;
+  padding-left: @component-padding;
+  margin-bottom: @component-padding;
+}
+
+.pulsar-assistant-plan-card-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  margin-bottom: 4px;
+
+  .icon::before {
+    margin-right: 0;
+  }
+}
+
+.pulsar-assistant-plan-card-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.pulsar-assistant-plan-card-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+
+  &.is-completed .pulsar-assistant-plan-card-text {
+    color: @text-color-subtle;
+    text-decoration: line-through;
+  }
+
+  .icon::before {
+    margin-right: 0;
+  }
+}
+
+// Permission review card (new component layout).
+.pulsar-assistant-permission {
+  border: 1px solid @background-color-warning;
+  border-radius: @component-border-radius;
+  padding: (@component-padding / 2);
+  margin-bottom: @component-padding;
+
+  &[data-resolved] {
+    border-color: @pane-item-border-color;
+    opacity: 0.7;
+  }
+
+  .pulsar-assistant-permission-question {
+    font-weight: bold;
+    margin-bottom: 6px;
+  }
+
+  .pulsar-assistant-permission-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 6px;
+
+    .icon::before {
+      margin-right: 0;
+    }
+  }
+
+  .pulsar-assistant-permission-title {
+    flex: 1;
+    min-width: 0;
+    font-weight: 600;
+  }
+
+  .pulsar-assistant-tag {
+    flex-shrink: 0;
+    padding: 1px 5px;
+    border: 1px solid @pane-item-border-color;
+    border-radius: 1em;
+    color: @text-color-subtle;
+    font-size: 0.7em;
+    text-transform: uppercase;
+  }
+
+  .pulsar-assistant-permission-locations {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 6px;
+
+    .pulsar-assistant-permission-location,
+    pre {
+      margin: 0 0 4px;
+      padding: 4px 6px;
+      background-color: @base-background-color;
+      border-radius: @component-border-radius;
+      font-family: monospace;
+      white-space: pre-wrap;
+      word-break: break-all;
+
+      &:last-child {
+        margin-bottom: 0;
+      }
+    }
+
+    button.pulsar-assistant-permission-location {
+      display: block;
+      width: 100%;
+      border: none;
+      text-align: left;
+      color: inherit;
+      cursor: pointer;
+
+      &:hover {
+        text-decoration: underline;
+      }
+    }
+  }
+
+  .pulsar-assistant-permission-details,
+  .pulsar-assistant-permission-raw {
+    margin-bottom: 6px;
+    font-size: 0.85em;
+
+    summary {
+      cursor: pointer;
+      opacity: 0.7;
+      user-select: none;
+
+      &:hover {
+        opacity: 1;
+      }
+    }
+
+    pre {
+      margin: 4px 0 0;
+      padding: 4px 6px;
+      background-color: @base-background-color;
+      border-radius: @component-border-radius;
+      overflow-x: auto;
+      font-size: 0.9em;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+  }
+
+  .pulsar-assistant-permission-content {
+    margin-bottom: 6px;
+    border-radius: @component-border-radius;
+    overflow: hidden;
+  }
+
+  .pulsar-assistant-permission-buttons,
+  .pulsar-assistant-permission-options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+
+    .pulsar-assistant-reject {
+      opacity: 0.8;
+    }
+
+    .pulsar-assistant-allow-always {
+      font-weight: bold;
+    }
+  }
+
+  .pulsar-assistant-permission-settled {
+    display: block;
+    margin-top: 6px;
+    color: @text-color-subtle;
+    font-size: 0.9em;
+  }
+}
+
+// Authentication picker cards.
+.pulsar-assistant-auth {
+  border: 1px solid @background-color-info;
+  border-radius: @component-border-radius;
+  padding: (@component-padding / 2);
+  margin-bottom: @component-padding;
+
+  .pulsar-assistant-auth-question {
+    font-weight: bold;
+    margin-bottom: 6px;
+  }
+
+  .pulsar-assistant-auth-options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+
+    .pulsar-assistant-reject {
+      opacity: 0.8;
+    }
+  }
+}
+
+.pulsar-assistant-auth-card {
+  border: 1px solid @background-color-info;
+  border-radius: @component-border-radius;
+  padding: (@component-padding / 2);
+  margin-bottom: @component-padding;
+
+  .pulsar-assistant-auth-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 6px;
+
+    .icon::before {
+      margin-right: 0;
+    }
+  }
+
+  .pulsar-assistant-auth-title {
+    font-weight: 600;
+  }
+
+  .pulsar-assistant-auth-desc {
+    margin-bottom: 6px;
+    color: @text-color-subtle;
+  }
+
+  .pulsar-assistant-auth-methods {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .pulsar-assistant-auth-settled {
+    display: block;
+    color: @text-color-subtle;
+    font-style: italic;
+  }
+}
